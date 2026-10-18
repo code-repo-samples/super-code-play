@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jobs Portal – Test &amp; Performance Report</title>
+<!--CHARTJS-->
+<style>
+:root{--bg:#f3f5f8;--card:#fff;--ink:#14202e;--mute:#5d6b7c;--line:#dde3ea;--brand:#0b5fa5;--ok:#1f8a5b;--okbg:#e4f4ec;--bad:#c23a3a;--badbg:#fbe9e9;--warn:#b7791f;--warnbg:#fbf0dc;--hd:#0d2238}
+@media (prefers-color-scheme:dark){:root{--bg:#0e151d;--card:#16202b;--ink:#e6edf4;--mute:#92a2b4;--line:#263444;--brand:#5fb0f0;--ok:#4cc790;--okbg:#12342a;--bad:#f07272;--badbg:#3a1c1e;--warn:#e8b45a;--warnbg:#3a2e14;--hd:#0a1118}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 "Segoe UI",system-ui,sans-serif}
+header{background:var(--hd);color:#eaf1f8;padding:22px 20px 40px}
+.wrap{max-width:1500px;margin:0 auto}
+h1{margin:0 0 4px;font-size:24px}h2{margin:0 0 12px;font-size:17px}
+.sub{color:#9db3c8;font-size:13px}
+.meta{display:flex;flex-wrap:wrap;gap:8px 28px;margin-top:14px;font-size:13px}
+.meta b{display:block;font-weight:500;color:#9db3c8;font-size:12px}
+.flag{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;font-weight:600;background:var(--warnbg);color:var(--warn)}
+.flag.on{background:var(--okbg);color:var(--ok)}
+main{padding:0 16px 40px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:-26px}
+.kpi,.sec{background:var(--card);border:1px solid var(--line);border-radius:10px}
+.kpi{padding:14px 16px}.kpi span,.kpi small{font-size:12px;color:var(--mute)}
+.kpi strong{display:block;font-size:28px;line-height:1.2}
+.sec{padding:18px;margin-top:16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.chart{position:relative;height:250px}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{font-weight:600;color:var(--mute);font-size:12px;background:var(--bg);white-space:nowrap}
+#jobT{min-width:1700px}
+.pill{display:inline-block;padding:1px 9px;border-radius:99px;font-size:12px;font-weight:600;white-space:nowrap}
+.p-ok{background:var(--okbg);color:var(--ok)}.p-bad{background:var(--badbg);color:var(--bad)}
+.bar{height:8px;border-radius:4px;background:var(--line);min-width:80px;overflow:hidden}.bar i{display:block;height:100%;background:var(--brand)}.bar i.slow{background:var(--bad)}
+.tools{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+input[type=search],select{padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font:inherit}
+input[type=search]{flex:1;min-width:200px}
+button.chip{padding:6px 13px;border:1px solid var(--line);border-radius:99px;background:var(--card);color:var(--ink);font:inherit;cursor:pointer}
+button.chip[aria-pressed=true]{background:var(--brand);border-color:var(--brand);color:#fff}
+tr.job{cursor:pointer}tr.job:hover{background:var(--bg)}
+tr.fail td:first-child{box-shadow:inset 3px 0 var(--bad)}
+tr.detail td{background:var(--bg);padding:14px 16px}
+.dg{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px 20px}
+.dg b{display:block;color:var(--mute);font-weight:500;font-size:12px}
+.mono{font-family:Consolas,monospace;font-size:12px}.w{word-break:break-all;min-width:180px;max-width:300px}
+.err{padding:10px 12px;border-radius:8px;background:var(--badbg);color:var(--bad);white-space:pre-wrap;word-break:break-word;font-size:12px}
+.prev{padding:10px 12px;border-radius:8px;background:var(--card);border:1px solid var(--line);white-space:pre-wrap;word-break:break-word;font-size:12px}
+.note{color:var(--mute);font-size:13px;margin:0 0 10px}
+</style>
+</head>
+<body>
+<header><div class="wrap">
+<h1 id="title"></h1><div class="sub" id="env"></div>
+<div class="meta" id="meta"></div>
+</div></header>
+<main><div class="wrap">
+<div class="kpis" id="kpis"></div>
+
+<section class="sec"><h2>Overview</h2><div class="grid">
+<div><p class="note">Job outcomes</p><div class="chart"><canvas id="cStatus"></canvas></div></div>
+<div><p class="note">Failure causes</p><div class="chart"><canvas id="cErr"></canvas></div></div>
+<div><p class="note">Gap between failed/last step and previous step (seconds)</p><div class="chart"><canvas id="cGap"></canvas></div></div>
+</div></section>
+
+<section class="sec" id="perfSec"><h2>Performance – full page load per action</h2>
+<p class="note" id="perfNote"></p>
+<div id="perfBody"><div class="chart" style="height:300px"><canvas id="cPerf"></canvas></div>
+<div class="scroll" style="margin-top:14px"><table id="perfT"><thead><tr><th>Action</th><th>Values used</th><th>Calls</th><th>GraphQL avg (ms)</th><th>Full load avg (ms)</th><th>Full load p95 (ms)</th><th>Full load max (ms)</th><th>Result</th></tr></thead><tbody></tbody></table></div></div>
+</section>
+
+<section class="sec"><h2>Scenarios tested</h2>
+<div class="scroll"><table id="scT"><thead><tr><th>Scenario</th><th>Filters</th><th>Searched by</th><th>Jobs</th><th>Passed</th><th>Failed</th><th>Started</th><th>Finished</th><th>Notes</th></tr></thead><tbody></tbody></table></div></section>
+
+<section class="sec"><h2>Job results</h2>
+<div class="tools">
+<input type="search" id="q" placeholder="Search DOCNUM, job ID, base name, partner, error…" aria-label="Search jobs">
+<button class="chip" data-f="all" aria-pressed="true">All</button>
+<button class="chip" data-f="fail" aria-pressed="false">Failed</button>
+<button class="chip" data-f="ok" aria-pressed="false">Passed</button>
+<select id="partner" aria-label="Partner"><option value="">All partners</option></select>
+<select id="scen" aria-label="Scenario"><option value="">All scenarios</option></select>
+</div>
+<p class="note">Select a row to see the full failed-step and previous-step messages.</p>
+<div class="scroll"><table id="jobT"><thead><tr><th>DOCNUM</th><th>Result</th><th>Job status</th><th>Job ID</th><th>Base name</th><th>Created</th><th>Delivered</th><th>Transaction</th><th>Payload</th><th>Incoming (bytes)</th><th>Outgoing (bytes)</th><th>Failed / last step</th><th>Step time</th><th>Previous step</th><th>Previous time</th><th>Gap</th><th>Errors</th></tr></thead><tbody></tbody></table></div>
+</section>
+</div></main>
+<script>
+const D=/*DATA*/null;
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const avg=a=>a.length?Math.round(a.reduce((x,y)=>x+y,0)/a.length):0;
+const p95=a=>{if(!a.length)return 0;const s=[...a].sort((x,y)=>x-y);return s[Math.min(s.length-1,Math.ceil(s.length*.95)-1)]};
+const when=d=>d?new Date(d).toLocaleString():'';
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const M=D.meta, jobs=D.jobs, failed=jobs.filter(j=>j.errorFound);
+
+$('#title').textContent=M.title;
+$('#env').textContent=M.env;
+const secs=Math.round((new Date(M.finishedAt)-new Date(M.startedAt))/1000);
+$('#meta').innerHTML=[['Started',when(M.startedAt)],['Finished',when(M.finishedAt)],['Duration',Math.floor(secs/60)+' min '+secs%60+' s'],
+['Scenarios run',D.scenarios.length+' of '+M.planned+' (jobs.csv)'],
+['Performance mode',`<span class="flag ${M.perfEnabled?'on':''}">${M.perfEnabled?'ON · limit '+M.limitMs.toLocaleString()+' ms':'OFF'}</span>`]]
+.map(x=>`<div><b>${x[0]}</b>${x[1]}</div>`).join('');
+
+// ---- performance ----
+const groups={};D.perf.forEach(p=>(groups[p.action]=groups[p.action]||[]).push(p));
+const prow=Object.entries(groups).map(([a,arr])=>{
+  const f=arr.filter(x=>x.fullMs!=null).map(x=>x.fullMs), g=arr.filter(x=>x.graphqlMs!=null).map(x=>x.graphqlMs);
+  const un=arr.filter(x=>!x.settled).length, bad=arr.filter(x=>x.graphqlStatus&&x.graphqlStatus!==200).length;
+  return{a,n:arr.length,vals:[...new Set(arr.map(x=>x.value))].slice(0,3).join(' | '),gAvg:avg(g),fAvg:avg(f),fP95:p95(f),fMax:f.length?Math.max(...f):0,un,bad,slow:p95(f)>M.limitMs||un>0||bad>0}});
+const slowN=prow.filter(r=>r.slow).length, allFull=D.perf.filter(x=>x.fullMs!=null).map(x=>x.fullMs);
+
+$('#kpis').innerHTML=[
+['Jobs tested',jobs.length,D.scenarios.length+' scenarios'],
+['Passed',jobs.length-failed.length,(jobs.length?Math.round((jobs.length-failed.length)/jobs.length*100):0)+'% pass rate'],
+['Failed',failed.length,'logs and screenshots saved'],
+['Avg full load',M.perfEnabled?avg(allFull)+' ms':'–',M.perfEnabled?allFull.length+' timed actions':'performance mode off'],
+['Slow actions',M.perfEnabled?slowN:'–',M.perfEnabled?'over '+M.limitMs.toLocaleString()+' ms (p95)':'']
+].map(k=>`<div class="kpi"><span>${k[0]}</span><strong>${k[1]}</strong><small>${k[2]}</small></div>`).join('');
+
+if(!M.perfEnabled){$('#perfNote').textContent='Performance mode was off for this run. Start it with PERF=true to time every filter, date, scroll and job-open action.';$('#perfBody').style.display='none'}
+else{
+  $('#perfNote').textContent='Each action is timed from the click until the page has no spinner and no GraphQL call in flight. GraphQL is the time to the first response. Limit: '+M.limitMs.toLocaleString()+' ms.';
+  $('#perfT tbody').innerHTML=prow.map(r=>`<tr><td>${esc(r.a)}</td><td class="mono w">${esc(r.vals)}</td><td>${r.n}</td><td>${r.gAvg}</td><td><div class="bar"><i class="${r.slow?'slow':''}" style="width:${Math.min(100,r.fAvg/M.limitMs*100)}%"></i></div>${r.fAvg}</td><td>${r.fP95}</td><td>${r.fMax}</td><td><span class="pill ${r.slow?'p-bad':'p-ok'}">${r.un?'Did not settle':r.bad?'GraphQL error':r.slow?'Slow':'Within limit'}</span></td></tr>`).join('');
+}
+
+// ---- scenarios ----
+$('#scT tbody').innerHTML=D.scenarios.map(s=>{const js=jobs.filter(j=>j.scenario===s.id),f=js.filter(j=>j.errorFound).length;
+return `<tr><td>${esc(s.name)}</td><td>${esc(s.filters)}</td><td>${esc(s.searchBy)}</td><td>${js.length}</td><td>${js.length-f}</td><td>${f}</td><td>${when(s.startedAt)}</td><td>${when(s.finishedAt)}</td><td>${esc((s.notes||[]).join(' · '))}</td></tr>`}).join('');
+
+// ---- jobs ----
+[...new Set(jobs.map(j=>j.partnerIdentifier).filter(Boolean))].forEach(p=>$('#partner').add(new Option(p,p)));
+D.scenarios.forEach(s=>$('#scen').add(new Option(s.name,s.id)));
+let mode='all';
+function render(){
+  const q=$('#q').value.toLowerCase(),pt=$('#partner').value,sc=$('#scen').value;
+  const rows=jobs.map((j,i)=>({j,i})).filter(({j})=>(mode==='all'||(mode==='fail')===!!j.errorFound)&&(!pt||j.partnerIdentifier===pt)&&(!sc||j.scenario===sc)
+    &&[j.docNum,j.jobId,j.baseName,j.partnerIdentifier,(j.errors||[]).join(' ')].join(' ').toLowerCase().includes(q));
+  $('#jobT tbody').innerHTML=rows.map(({j,i})=>{const st=j.step||{},pv=j.prev||{};
+    return `<tr class="job ${j.errorFound?'fail':''}" tabindex="0" data-i="${i}"><td class="mono">${esc(j.docNum)}</td><td><span class="pill ${j.errorFound?'p-bad':'p-ok'}">${j.errorFound?'Failed':'Passed'}</span></td><td>${esc(j.status)}</td><td class="mono w">${esc(j.jobId)}</td><td class="mono w">${esc(j.baseName)}</td><td>${esc(j.creationTime)}</td><td>${esc(j.deliveryTime||'–')}</td><td>${esc(j.transactionTime)}</td><td>${esc(j.payloadSize)}</td><td>${esc(j.incomingFileSize)}</td><td>${esc(j.outgoingFileSize)}</td><td>${esc(st.component||'–')}</td><td>${esc(st.time)}</td><td>${esc(pv.component||'–')}</td><td>${esc(pv.time)}</td><td>${j.gapSeconds==null?'':j.gapSeconds+' s'}</td><td>${esc((j.errors||[]).join(' · '))}</td></tr>`}).join('')
+    ||'<tr><td colspan="17">No jobs match these filters. Clear the search or choose All.</td></tr>';
+}
+function toggle(tr){
+  const n=tr.nextElementSibling;if(n&&n.classList.contains('detail')){n.remove();return}
+  const j=jobs[tr.dataset.i],st=j.step,pv=j.prev,d=document.createElement('tr');d.className='detail';
+  d.innerHTML=`<td colspan="17"><div class="dg">
+  <div><b>${j.errorFound?'Failed step':'Last step'} – ${esc(st?st.component+' @ '+st.time:'–')}</b><div class="${j.errorFound?'err':'prev'}">${esc(st?st.message:'')}</div></div>
+  <div><b>Previous step – ${esc(pv?pv.component+' @ '+pv.time:'–')}</b><div class="prev">${esc(pv?pv.message:'')}</div></div>
+  <div><b>Searched by</b>${esc(j.searchedBy)}<br><b>Partner</b>${esc(j.partnerIdentifier)}<br><b>Upload time</b>${esc(j.uploadTime)}${j.files?'<br><b>Saved files</b>'+esc(j.files):''}</div></div></td>`;
+  tr.after(d);
+}
+$('#jobT').addEventListener('click',e=>{const t=e.target.closest('tr.job');if(t)toggle(t)});
+$('#jobT').addEventListener('keydown',e=>{if(e.key==='Enter'){const t=e.target.closest('tr.job');if(t)toggle(t)}});
+$('#q').oninput=$('#partner').onchange=$('#scen').onchange=render;
+document.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{mode=b.dataset.f;document.querySelectorAll('.chip').forEach(c=>c.setAttribute('aria-pressed',c===b));render()});
+render();
+
+// ---- charts ----
+Chart.defaults.color=css('--mute');Chart.defaults.maintainAspectRatio=false;Chart.defaults.borderColor=css('--line');
+const ok=css('--ok'),bad=css('--bad'),br=css('--brand');
+new Chart($('#cStatus'),{type:'doughnut',data:{labels:['Passed','Failed'],datasets:[{data:[jobs.length-failed.length,failed.length],backgroundColor:[ok,bad],borderWidth:0}]},options:{cutout:'62%',plugins:{legend:{position:'bottom'}}}});
+const ec={};failed.forEach(j=>(j.errors||[]).forEach(e=>ec[e]=(ec[e]||0)+1));
+new Chart($('#cErr'),{type:'bar',data:{labels:Object.keys(ec).map(k=>k.length>26?k.slice(0,25)+'…':k),datasets:[{data:Object.values(ec),backgroundColor:bad}]},options:{indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{ticks:{precision:0}}}}});
+new Chart($('#cGap'),{type:'bar',data:{labels:jobs.map(j=>j.docNum.slice(-6)),datasets:[{data:jobs.map(j=>j.gapSeconds||0),backgroundColor:jobs.map(j=>j.errorFound?bad:br)}]},options:{plugins:{legend:{display:false}}}});
+if(M.perfEnabled&&prow.length)new Chart($('#cPerf'),{type:'bar',data:{labels:prow.map(r=>r.a),datasets:[
+ {label:'GraphQL avg ms',data:prow.map(r=>r.gAvg),backgroundColor:br},
+ {label:'Full load avg ms',data:prow.map(r=>r.fAvg),backgroundColor:'#6c8cd5'},
+ {label:'Full load p95 ms',data:prow.map(r=>r.fP95),backgroundColor:prow.map(r=>r.slow?bad:ok)},
+ {type:'line',label:'Limit',data:prow.map(()=>M.limitMs),borderColor:css('--warn'),borderDash:[6,4],pointRadius:0}]},options:{plugins:{legend:{position:'bottom'}}}});
+</script>
+</body>
+</html>
