@@ -1,0 +1,28 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Load test report vus-50</title>
+<style>
+:root{--bg:#fff;--fg:#1a1a19;--mut:#6b6a66;--line:#e1e0d9;--card:#f6f5f1;--ok:#2d7a2d;--bad:#c23a3a;--hot:#fdeeee}
+@media (prefers-color-scheme:dark){:root{--bg:#1a1a19;--fg:#f0efec;--mut:#a3a29a;--line:#383835;--card:#262624;--ok:#5fc15f;--bad:#f07272;--hot:#3a2222}}
+body{font:14px system-ui,sans-serif;background:var(--bg);color:var(--fg);margin:0;padding:20px;max-width:1150px}
+h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:24px 0 8px}.sub{color:var(--mut);font-size:12px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin:14px 0}
+.card{background:var(--card);border-radius:8px;padding:10px}.lbl{font-size:12px;color:var(--mut)}.val{font-size:20px;font-weight:500}
+.wrap{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:13px}
+td,th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}th{color:var(--mut);font-weight:400}
+.l{text-align:left;white-space:normal}.ok{color:var(--ok)}.bad{color:var(--bad)}tr.hot{background:var(--hot)}
+.banner{display:inline-block;padding:3px 10px;border-radius:6px;font-size:12px;font-weight:500;background:var(--hot);color:var(--bad)}
+.banner.pass{background:var(--card);color:var(--ok)}
+</style></head><body>
+<h1>Load test report <span class="banner">1 threshold(s) failed</span></h1>
+<div class="sub">2026-10-21T23:41:19.921Z | 50 users | ramp 1m, hold 5m, down 30s | https://x/graphql</div>
+<div class="cards">
+<div class="card"><div class="lbl">Requests</div><div class="val">40460</div></div><div class="card"><div class="lbl">Requests/s</div><div class="val">98.4</div></div><div class="card"><div class="lbl">Pass</div><div class="val">39414</div></div><div class="card"><div class="lbl">Fail</div><div class="val bad">1046</div></div><div class="card"><div class="lbl">Error rate</div><div class="val bad">2.6%</div></div>
+<div class="card"><div class="lbl">Avg</div><div class="val">1.90 s</div></div><div class="card"><div class="lbl">p90</div><div class="val">3.30 s</div></div><div class="card"><div class="lbl">p95</div><div class="val">4.10 s</div></div><div class="card"><div class="lbl">p99</div><div class="val">7.00 s</div></div><div class="card"><div class="lbl">Page load p95</div><div class="val">5.20 s</div></div>
+</div>
+<h2>Per operation</h2><div class="wrap"><table>
+<tr><th class="l">Operation</th><th>Requests</th><th>Pass</th><th>Fail</th><th>Fail %</th><th>Avg</th><th>p90</th><th>p95</th><th>p99</th><th>Max</th><th>Avg size</th></tr><tr class=""><td class="l">GetJobs</td><td>31420</td><td class="ok">30854</td><td class="bad">566</td><td>1.8%</td><td>1.80 s</td><td>3.10 s</td><td>3.90 s</td><td>6.80 s</td><td>12.00 s</td><td>3.3 KB</td></tr><tr class="hot"><td class="l">GetPendingBatchJobs</td><td>6120</td><td class="ok">5640</td><td class="bad">480</td><td>7.8%</td><td>3.50 s</td><td>5.90 s</td><td>7.20 s</td><td>14.90 s</td><td>30.00 s</td><td>20.5 KB</td></tr><tr class=""><td class="l">CurrentUser</td><td>2920</td><td class="ok">2920</td><td class="">0</td><td>0.0%</td><td>120 ms</td><td>180 ms</td><td>200 ms</td><td>400 ms</td><td>900 ms</td><td>-</td></tr></table></div>
+<h2>HTTP status counts</h2><div class="sub">200=40000  429=880</div>
+<h2>Errors by type</h2><div class="wrap"><table>
+<tr><th class="l">Operation</th><th class="l">Type</th><th>Count</th><th class="l">What it means</th></tr><tr><td class="l">GetJobs</td><td class="l">throttled_429</td><td class="bad">400</td><td class="l">Throttled: Cosmos DB RU limit exceeded or gateway rate limit hit</td></tr><tr><td class="l">GetJobs</td><td class="l">graphql_error</td><td class="bad">166</td><td class="l">HTTP 200 but the response has GraphQL errors (resolver failure or validation error)</td></tr><tr><td class="l">GetPendingBatchJobs</td><td class="l">throttled_429</td><td class="bad">480</td><td class="l">Throttled: Cosmos DB RU limit exceeded or gateway rate limit hit</td></tr></table></div>
+<h2>Error descriptions <span class="sub">(from 3 logged failures; the log keeps the first N per VU, so counts here are samples)</span></h2><div class="wrap"><table><tr><th>Count</th><th class="l">Operation</th><th class="l">Type</th><th>Status</th><th>Avg time</th><th class="l">Message</th><th class="l">Example request id</th></tr><tr><td>1</td><td class="l">GetJobs</td><td class="l">throttled_429</td><td>429</td><td>120 ms</td><td class="l" style="word-break:break-word">Request rate is large</td><td class="l" style="word-break:break-all">r1</td></tr><tr><td>1</td><td class="l">DataSystemsSearch</td><td class="l">throttled_429</td><td>429</td><td>120 ms</td><td class="l" style="word-break:break-word">Request rate is large</td><td class="l" style="word-break:break-all">r1</td></tr><tr><td>1</td><td class="l">GetPendingBatchJobs</td><td class="l">throttled_429</td><td>429</td><td>120 ms</td><td class="l" style="word-break:break-word">Request rate is large</td><td class="l" style="word-break:break-all">r1</td></tr></table></div>
+<h2>Thresholds</h2><div class="wrap"><table><tr><th class="l">Result</th><th class="l">Metric</th><th class="l">Condition</th></tr><tr><td class="l"><b class="bad">FAIL</b></td><td class="l">dur_GetJobs</td><td class="l">p(95)&lt;2000</td></tr></table></div>
+</body></html>

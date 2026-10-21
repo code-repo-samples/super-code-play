@@ -1,0 +1,31 @@
+{
+  "durations": { "rampUp": "1m", "hold": "5m", "rampDown": "30s" },
+  "mix": { "pageLoad": 15, "scroll": 40, "filter": 10, "search": 10, "jobDetails": 10, "batchPanel": 10, "dropdown": 5 },
+  "think": { "min": 2, "max": 5 },
+  "scrollThink": { "min": 0.5, "max": 2 },
+  "scrollPages": { "min": 5, "max": 15 },
+  "pageSize": 5,
+  "batchPageSize": 50,
+  "batchOffsets": [0, 50, 100, 200],
+  "timeoutSeconds": 30,
+  "maxErrorRate": 0.01,
+  "maxErrorLogsPerVU": 50,
+  "thresholdsMs": {
+    "GetJobs": 2000,
+    "GetPendingBatchJobs": 3000,
+    "GetJobDetails": 3000,
+    "DataTypesDropdown": 1000,
+    "DataSystemsDropdown": 1000,
+    "DataSystemsSearch": 1000,
+    "CurrentUser": 500
+  },
+  "jobFilters": [
+    { "showHidden": true },
+    { "showHidden": false }
+  ],
+  "dateFields": { "from": null, "to": null },
+  "dateRangesDays": [1, 7, 30, 90, 365],
+  "searchWords": ["c", "ca", "aldi", "allo", "coca", "kroger", "walmart", "costco"],
+  "jobIds": [],
+  "logCounts": [20, 50]
+}
