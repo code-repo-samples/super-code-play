@@ -1,0 +1,113 @@
+{
+  "_help": "Keys starting with underscore are notes only. Run 'python sftp_load.py scan' to add every integration found in the samples folder, then fill upload_path (SFTP) or http_url (HTTP) for each.",
+
+  "mode": "functional",
+  "_mode": "functional = files written to disk, every upload checked on the server, 1 worker. performance = memory only, 4 workers, no per-file check. Override on the command line with --mode.",
+
+  "dry_run": false,
+  "output_mode": "generate_and_upload",
+
+  "samples_directory": "project\\samples",
+  "output_directory": "project\\output_files",
+  "reports_directory": "project\\reports",
+  "logs_directory": "project\\logs",
+  "state_directory": "project\\state",
+
+  "total": null,
+  "_total": "Set a number (for example 20000) to spread that many files round robin over every selected integration. Leave null to use defaults.copies per integration.",
+
+  "defaults": {
+    "copies": 100,
+    "replace_last_n": 10,
+    "append_suffix": "",
+    "tag_value_length": 10,
+    "http_form_field": ""
+  },
+  "_defaults": "replace_last_n = how many digits the unique number has in file names. append_suffix goes after the number, before the extension. tag_value_length = digits written into replace_tags. http_form_field '' means a form part with an empty name (same as Postman/curl -F '=@file').",
+
+  "batch_size": 100,
+  "batch_pause_seconds": 5,
+  "type_run_settings": {
+    "HTTP-SFTP": { "batch_size": 100, "batch_pause_seconds": 1 },
+    "SFTP-EMAIL": { "batch_size": 200, "batch_pause_seconds": 1 },
+    "SFTP-FTP": { "batch_size": 100, "batch_pause_seconds": 5 },
+    "SFTP-HTTP": { "batch_size": 100, "batch_pause_seconds": 1 },
+    "SFTP-SFTP": { "batch_size": 300, "batch_pause_seconds": 0.1 }
+  },
+  "_batches": "Each type runs its own stream: send batch_size files, wait batch_pause_seconds, repeat. Streams run side by side and share the workers.",
+
+  "schedule": {
+    "enabled": true,
+    "hours": 1,
+    "per_hour": null,
+    "type_totals": { "SFTP-HTTP": 10000, "SFTP-SFTP": 10000, "SFTP-EMAIL": 5000 },
+    "profile": "random",
+    "min_per_minute": 100,
+    "max_per_minute": 2000,
+    "seed": null,
+    "max_backlog": null
+  },
+  "_schedule": "When present and enabled, replaces batch_size / batch_pause_seconds / type_run_settings / total / max_files_per_hour. Each hour is split into 60 random minute counts between min_per_minute and max_per_minute that add up to exactly that hour's total. per_hour: a number (same every hour), a list with one number per hour such as [15000, 20000, 15000] (hours is then optional), or null together with type_totals to spread the type totals evenly over the hours. type_totals: files per type for the whole run; the types are mixed evenly through every hour, and inside a type the integrations share round robin. If per_hour is also given, both must add up to the same number. Without type_totals, set per_hour (for example 15000). profile 'flat' = same count every minute. seed null = new pattern each run (the seed used is printed and written in the report); set a number to repeat a pattern. Files are spread across each minute and any shortfall is carried into the next minute. max_backlog null = hold back sending when files waiting for a worker exceed 2 x the busiest minute. Set enabled false (or delete the block) to go back to batch mode.",
+  "failure_policy": { "warn_after_seconds": 30, "abort_after_seconds": 120, "min_failures": 10 },
+  "_failure_policy": "Failed files never stop the run by themselves. If EVERY file fails continuously for warn_after_seconds an ERROR is logged and shown in the report; after abort_after_seconds (and at least min_failures files) the run stops, writes the report and exits with code 3. One success resets the timer. abort_after_seconds 0 = never stop, keep going until you press Ctrl+C.",
+  "report_html_max_rows": 20000,
+  "_report": "Above this many files the HTML report lists only the first rows of each integration (every failed file is always kept). The CSV manifest always has every row.",
+
+  "workers": null,
+  "storage": null,
+  "verify_remote": null,
+  "max_files_per_hour": null,
+  "target_files_per_hour": 20000,
+  "retries": 2,
+  "end_check": false,
+  "abort_after_consecutive_failures": 0,
+  "_tuning": "null = use the mode preset (functional: 1 worker, disk, verify; performance: 4 workers, memory, no verify). max_files_per_hour is a hard throttle. end_check lists each remote folder once at the end of a performance run (poller may already have taken files). abort_after_consecutive_failures 0 = never abort.",
+
+  "http_headers": {},
+  "http_verify_tls": true,
+
+  "cleanup_output_before_run": true,
+  "report_skipped_integrations": true,
+
+  "upload_path_policy": {
+    "required_prefix": "/spice/qa-final",
+    "prompt_before_prefix": true
+  },
+  "_policy": "Any SFTP upload_path outside required_prefix is skipped. prompt_before_prefix asks you to type YES before sending; use --yes to skip the prompt.",
+
+  "run_filter": {
+    "slots": []
+  },
+  "_run_filter": "Empty = run everything. Examples: [{\"type\": \"SFTP-SFTP\", \"slot\": \"5\"}], [{\"type\": \"SFTP-EMAIL\", \"slot\": \"all\"}], [{\"type\": \"HTTP-SFTP\", \"slot\": [\"1\", \"3\"]}]. Or use --type and --slot on the command line.",
+
+  "integrations": [
+    {
+      "sr_no": 1,
+      "slot": "1",
+      "type": "HTTP-SFTP",
+      "label": "CONASystem_ALLOY_XMLIDOCCONA_OUT_DELVRY07_DESADV",
+      "integration": "CONA System > XML IDOC CONA_OUT_DELVRY07_DESADV > ALLOY",
+      "sender": "CONA System",
+      "receiver": "ALLOY",
+      "data_type": "XML IDOC CONA_OUT_DELVRY07_DESADV",
+      "http_url": "http://http-gateway-qa.example.com/ws/REPLACE_WITH_REAL_URL",
+      "http_form_field": "",
+      "upload_path": null,
+      "replace_tags": [],
+      "_comment": "slot = the number the sample folder starts with (1 - ...). Optional per integration: copies, max_copies, weight, name_mode (token|tail|insert), replace_last_n, append_suffix, http_headers, serial."
+    },
+    {
+      "sr_no": 1,
+      "slot": "1",
+      "type": "SFTP-EMAIL",
+      "label": "CBS_Durango_FFTextApplicationAdvice",
+      "integration": "Email delivery for CBS > FF Text ApplicationAdvice > Durango",
+      "sender": "CBS",
+      "receiver": "Durango",
+      "data_type": "FF Text ApplicationAdvice",
+      "upload_path": "/spice/qa-final/opt/liaison/fromalloy/topartner/",
+      "replace_tags": [],
+      "_comment": "replace_tags example: [\"DocNum\", {\"tag\": \"TransactionNumber\", \"prefix\": \"XYZ\", \"length\": 10}]"
+    }
+  ]
+}
