@@ -155,8 +155,11 @@ def plan_hour(total, lo, hi, profile, rng, minutes=60):
     if profile == "flat":
         return [(total * (i + 1)) // minutes - (total * i) // minutes for i in range(minutes)]
     if not (lo * minutes <= total <= hi * minutes):
+        fix = (f"raise max_per_minute to at least {-(-total // minutes)} (more if you want bursts)" if total > hi * minutes
+               else f"lower min_per_minute to {total // minutes} or less")
         raise ValueError(f"{total:,} files/hour cannot be split over {minutes} minutes within "
-                         f"{lo}..{hi} per minute (allowed hourly total: {lo * minutes:,}..{hi * minutes:,})")
+                         f"{lo}..{hi} per minute (allowed hourly total: {lo * minutes:,}..{hi * minutes:,}). To fix: {fix}, "
+                         f"or change the hourly total / type_totals")
     cap = hi - lo
     extra = [0] * minutes
     remaining = total - lo * minutes
@@ -180,6 +183,25 @@ def plan_hour(total, lo, hi, profile, rng, minutes=60):
     return [lo + e for e in extra]
 
 
+def build_filter(cfg, args):
+    """What to run: --type values (repeatable) like 'SFTP-HTTP', 'SFTP-HTTP:1,3', 'A;B:2' or 'A,B'; else config run_filter."""
+    flt = []
+    for val in (getattr(args, "type", None) or []):
+        for part in str(val).split(";"):
+            part = part.strip()
+            if not part:
+                continue
+            if ":" in part:
+                t, sl = part.split(":", 1)
+                flt.append({"type": t.strip(), "slot": [x.strip() for x in sl.split(",") if x.strip()] or "all"})
+            else:
+                dflt = [x.strip() for x in str(args.slot).split(",")] if getattr(args, "slot", None) else "all"
+                flt.extend({"type": t.strip(), "slot": dflt} for t in part.split(",") if t.strip())
+    if not flt:
+        flt = list((cfg.get("run_filter") or {}).get("slots") or [])
+    return flt
+
+
 def mix_order(quotas):
     """Order files so every integration (and so every type) is spread evenly through the whole run."""
     keys = []
@@ -189,7 +211,7 @@ def mix_order(quotas):
     return [i for _, i in keys]
 
 
-def parse_schedule(raw):
+def parse_schedule(raw, keep_types=None, only_minutes=None):
     """Validate the `schedule` block and build the full minute-by-minute plan. Returns None when not enabled."""
     if not raw or raw.get("enabled", True) is False:
         return None
@@ -210,6 +232,21 @@ def parse_schedule(raw):
                 totals = [(tt * (h + 1)) // hours - (tt * h) // hours for h in range(hours)]
             else:
                 totals = [int(15000 if per_hour is None else per_hour)] * hours
+        scaled_note = ""
+        if type_totals and sum(totals) == sum(type_totals.values()) and keep_types is not None:
+            kept = {k: v for k, v in type_totals.items() if norm_key(k) in keep_types}
+            if not kept:
+                raise ValueError("none of the selected types appear in type_totals (selected: "
+                                 + ", ".join(sorted(keep_types)) + ")")
+            if kept != type_totals:                                  # a subset was selected: re-spread over the hours
+                old, new = sum(type_totals.values()), sum(kept.values())
+                acc, scaled = 0, []
+                for t in totals:
+                    acc += t * new
+                    scaled.append(acc // old - sum(scaled))
+                totals, type_totals = scaled, kept
+                scaled_note = (f"Only {', '.join(kept)} selected: {new:,} files, hourly totals "
+                               + ", ".join(f"{x:,}" for x in totals))
         if type_totals and sum(totals) != sum(type_totals.values()):
             raise ValueError(f"type_totals add up to {sum(type_totals.values()):,} but the hourly totals add up to "
                              f"{sum(totals):,}. Set per_hour to null to spread type_totals evenly over the hours, "
@@ -218,6 +255,9 @@ def parse_schedule(raw):
         if profile not in ("random", "flat"):
             raise ValueError("profile must be 'random' or 'flat'")
         lo, hi = int(raw.get("min_per_minute", 0)), int(raw.get("max_per_minute", 10 ** 9))
+        if scaled_note and lo * 60 > min(totals):
+            lo = max(min(totals) // 60, 0)
+            scaled_note += f"; min_per_minute lowered to {lo}"
         if hours < 1 or lo < 0 or hi < max(lo, 1) or min(totals) < 1:
             raise ValueError("hours must be >= 1, per_hour >= 1 and 0 <= min_per_minute <= max_per_minute")
         seed = raw.get("seed")
@@ -228,10 +268,25 @@ def parse_schedule(raw):
             minutes.extend(plan_hour(t, lo, hi, profile, rng))
     except (ValueError, TypeError) as ex:
         raise SystemExit(f"Invalid schedule block in config.json: {ex}")
+    if only_minutes and only_minutes < len(minutes):                 # quick test: just the first N minutes of the plan
+        minutes = minutes[:only_minutes]
+        new, old = sum(minutes), sum(totals)
+        if type_totals:
+            acc, out, done = 0, {}, 0
+            for k, v in type_totals.items():
+                acc += v * new
+                out[k] = acc // old - done
+                done += out[k]
+            out[k] += new - done
+            type_totals = {k: v for k, v in out.items() if v > 0}
+        hours = (len(minutes) + 59) // 60
+        totals = [sum(minutes[h * 60:(h + 1) * 60]) for h in range(hours)]
+        scaled_note = (scaled_note + "; " if scaled_note else "") + \
+            f"First {only_minutes} minute(s) of the plan only: {new:,} files"
     peak = max(minutes)
     backlog = int(raw.get("max_backlog") or max(peak * 2, 200))
     msec = float(raw.get("minute_seconds", 60))      # test only: shrink a 'minute' to run a long schedule quickly
-    return dict(hours=hours, totals=totals, type_totals=type_totals, profile=profile, lo=lo, hi=hi, minutes=minutes, minute_seconds=msec,
+    return dict(note=scaled_note, hours=hours, totals=totals, type_totals=type_totals, profile=profile, lo=lo, hi=hi, minutes=minutes, minute_seconds=msec,
                 seed=seed, seed_used=seed_used, max_backlog=backlog, total=sum(totals))
 
 
@@ -502,11 +557,18 @@ class Runner:
         self.resp_kept = Counter()
         self.t_start = self.t_end = None
         self.status = "NOT STARTED"
-        self.sched = parse_schedule(cfg.get("schedule"))
+        flt0 = build_filter(cfg, args)
+        keep = {norm_key(e.get("type", "")) for e in flt0} if flt0 else None
+        self.sched = None if getattr(args, "total", None) else parse_schedule(
+            cfg.get("schedule"), keep, getattr(args, "minutes", None))
+        if self.sched is None and cfg.get("schedule") and getattr(args, "total", None):
+            self.log_early = f"--total {args.total} given: the schedule is not used, sending exactly {args.total} file(s)"
         self.minute_s = self.sched["minute_seconds"] if self.sched else 60.0
         self.sched_log, self.sched_state, self.last_checkpoint = [], {}, None
         if self.sched:
             self.target_per_hour = round(self.sched["total"] / (len(self.sched["minutes"]) / 60.0))
+            if self.sched["note"]:
+                self.log.info(self.sched["note"])
             if self.max_per_hour:
                 self.warn("schedule is set, so max_files_per_hour is ignored")
                 self.max_per_hour = None
@@ -532,13 +594,7 @@ class Runner:
         cfg, args = self.cfg, self.args
         allints = [Integration(r, self.defaults, int(self.defaults.get("tag_value_length", 10)))
                    for r in cfg.get("integrations", [])]
-        flt = []
-        if args.type:
-            flt = [{"type": args.type, "slot": args.slot or "all"}]
-        else:
-            rf = cfg.get("run_filter") or {}
-            for e in rf.get("slots", []) or []:
-                flt.append(e)
+        flt = build_filter(cfg, args)
         chosen = []
         for it in allints:
             if not flt:
@@ -564,8 +620,10 @@ class Runner:
             def skip(reason):
                 it.ok, it.skip_reason = False, reason
                 self.warn(f"SKIPPED {it.key} [{it.integration}]: {reason}")
+            if it.delivery is None and self.dry:
+                it.delivery = "none"                              # generate-only: no destination needed
             if it.delivery is None:
-                skip("no upload_path or http_url configured")
+                skip("no upload_path or http_url configured (set one, or use --dry-run to only generate files)")
                 continue
             if it.delivery == "sftp" and prefix:
                 up = it.upload_path.replace("\\", "/")
@@ -612,6 +670,8 @@ class Runner:
     # ---- plan
     def build_plan(self):
         ok = [it for it in self.ints if it.ok]
+        if getattr(self, "log_early", None):
+            print(self.log_early)
         if self.sched:
             if self.args.total or self.cfg.get("total"):
                 self.warn("schedule is set, so --total / total is ignored (the schedule decides the file count)")
@@ -697,7 +757,7 @@ class Runner:
         S = self.sched
         m = S["minutes"]
         peak_s = max(m) / 60.0
-        lines = [f"Schedule: {S['hours']} hour(s), profile {S['profile']}, {S['lo']}-{S['hi']} files/min, "
+        lines = ([S["note"]] if S["note"] else []) + [f"Schedule: {S['hours']} hour(s), profile {S['profile']}, {S['lo']}-{S['hi']} files/min, "
                  f"seed {S['seed_used']}{'' if S['seed'] is not None else ' (random; put it in config to repeat this pattern)'}",
                  "  hourly totals: " + ", ".join(f"{t:,}" for t in S["totals"]) + f"  = {S['total']:,} files over "
                  f"{fmt_dur(len(m) * 60)}",
@@ -954,7 +1014,8 @@ class Runner:
         self._mrows = 0
 
     def write_manifest_row(self, it, row):
-        dest = it.http_url if it.delivery == "http" else it.upload_path.rstrip("/") + "/" + row["gen"]
+        dest = it.http_url if it.delivery == "http" else (
+            it.upload_path.rstrip("/") + "/" + row["gen"] if it.upload_path else "(generate only)")
         self.mw.writerow([self.run_id, it.type, it.slot, it.integration, row["seq"], row["batch"], it.template_name,
                           row["gen"], row["status"], row["verify"], row["http"], row["lsize"], row["rsize"], dest,
                           row["mtime"], row["perms"], row["owner"], row["checked"], row["att"], row["worker"],
@@ -1262,7 +1323,7 @@ def build_data(rn: Runner):
                   "INCOMPLETE" if proc < it.planned else "PASS")
         first_ok = next((r for r in rows if r["status"] in ("PASSED", "UNVERIFIED", "GENERATED")), None)
         first_bad = next((r for r in rows if r["status"] == "FAILED"), None)
-        kv = [["Delivery", "HTTP multipart POST" if it.delivery == "http" else "SFTP upload"],
+        kv = [["Delivery", {"http": "HTTP multipart POST", "none": "Generate only (no destination)"}.get(it.delivery, "SFTP upload")],
               ["Target", it.target], ["Sample folder", it.folder.name], ["Sample file", it.template_name],
               ["Naming rule used", f"{it.mode_used} (last {it.n} digits/chars, suffix '{it.suffix}')"]]
         if first_ok:
@@ -1579,12 +1640,16 @@ def main(argv=None):
     ap.add_argument("command", choices=COMMANDS)
     ap.add_argument("--config", default="config.json")
     ap.add_argument("--mode", choices=list(PRESETS))
-    ap.add_argument("--type", help="run only this type (e.g. SFTP-EMAIL)")
-    ap.add_argument("--slot", help="with --type: slot number, or 'all'")
+    ap.add_argument("--type", action="append", metavar="TYPE[:SLOTS]",
+                    help="run only this type, e.g. SFTP-EMAIL, SFTP-EMAIL:1,3 (slots), 'A,B' (several types), "
+                         "'A:1;B:all' (per-type slots); repeat the option to add more")
+    ap.add_argument("--slot", help="slots for --type entries without ':' (one number, a list 1,3,5, or 'all')")
     ap.add_argument("--total", type=int, help="total files, dealt round robin over the selected integrations")
     ap.add_argument("--copies", type=int, help="files per integration (when no total is set)")
     ap.add_argument("--workers", type=int)
     ap.add_argument("--dry-run", action="store_true", help="generate files, upload nothing")
+    ap.add_argument("--minutes", type=int, metavar="N",
+                    help="quick test: run only the first N minutes of the schedule (files scaled to match)")
     ap.add_argument("--paced", action="store_true",
                     help="with --dry-run and a schedule: also wait out the per-minute timing (default: generate at full speed)")
     ap.add_argument("--yes", action="store_true", help="skip the upload-prefix confirmation prompt")

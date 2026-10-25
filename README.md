@@ -19,6 +19,51 @@ project\output_files   project\reports   project\logs   project\state
 
 `<TYPE>` folders can be written `SFTP - EMAIL` on disk and `SFTP-EMAIL` in the config; spaces are ignored. The serial is matched as a whole number, so `29` never matches `290` or `129`.
 
+## Command cheat sheet (start here)
+
+Use the current `sftp_load.py` from the zip (rename it if you like, for example `sftp-upload-v2.py`). Type `--total 5` with a space; `--total5` is not recognised. An older copy fails with `Invalid schedule block` even for `--total`.
+
+Every command starts with `python sftp_load.py`. Add `--dry-run` to any `run` to generate files only (nothing is uploaded).
+
+**Smoke tests (do these first)**
+
+| Goal | Command |
+|---|---|
+| Look at the plan, send nothing | `check` |
+| Generate exactly 5 files, no upload | `run --dry-run --total 5` |
+| Send exactly 5 real files | `run --total 5 --mode performance` |
+| First 5 minutes of the schedule, generate only, in seconds | `run --dry-run --minutes 5` |
+| Same, but really waiting out the 5 minutes | `run --dry-run --minutes 5 --paced` |
+| Real 5-minute run | `run --minutes 5 --mode performance` |
+
+`--total N` ignores the schedule and sends exactly N files. `--minutes N` runs only the first N minutes of the schedule; the file counts are scaled to match (per-type shares stay in proportion).
+
+**Choosing what to run** (`--type` can be repeated; slots come after a colon)
+
+| Goal | Command |
+|---|---|
+| Everything in the config | `run` |
+| One type, all slots | `run --type SFTP-EMAIL` |
+| One type, one slot | `run --type SFTP-EMAIL:5` |
+| One type, several slots | `run --type SFTP-EMAIL:1,3,5` |
+| Several types, all slots | `run --type SFTP-HTTP,SFTP-EMAIL` |
+| Several types, same slot in each | `run --type SFTP-HTTP,SFTP-EMAIL --slot 2` |
+| Several types, different slots | `run --type "SFTP-HTTP:1;SFTP-SFTP:1,2;SFTP-EMAIL:all"` |
+| The same, written as separate options | `run --type SFTP-HTTP:1 --type SFTP-SFTP:1,2` |
+
+Quote the value when it contains `;`. Type names ignore case and spaces. With a schedule and `type_totals`, only the selected types are run and their files are spread over the full hour (their share of the totals is kept); `min_per_minute` is lowered automatically if the smaller total could not reach it. Anything given on the command line wins over `run_filter` in the config. Add `--total` or `--minutes` to any of the above.
+
+**Performance vs functional**
+
+| | Command | What it does |
+|---|---|---|
+| Functional | `run --mode functional` (the default) | 1 worker, checks every uploaded file on the server (size, time, permissions), report has the `ls -l` evidence. For small runs. |
+| Performance | `run --mode performance` | 4 workers, no per-file check, throughput chart. For the long scheduled runs. |
+
+Examples: `run --mode functional --type SFTP-EMAIL:5 --total 20` (check 20 files of one recipe properly), `run --mode performance` (the full scheduled run).
+
+**After a run** open `project\reports\report_<mode>_<id>.html` (summary, every file, chart) and `manifest_<mode>_<id>.csv` (every file). Logs are in `project\logs`.
+
 ## Quick start: one hour, 25,000 files
 
 ```
@@ -32,7 +77,7 @@ python sftp_load.py run --mode performance        the real one-hour run (type YE
 
 ### Generate only (no upload)
 
-`--dry-run` (or `"output_mode": "generate_only"` in the config) writes the files to `project\\output_files\\_run_<id>\\<TYPE>\\<serial - description>\\` and sends nothing. With a schedule it generates at full speed instead of waiting out the hour; add `--paced` to keep the per-minute timing. A dry run never deletes earlier `_run_*` folders. Narrow it with `--type SFTP-EMAIL --slot 5 --total 200`. The CSV manifest lists every generated file with its path.
+`--dry-run` (or `"output_mode": "generate_only"` in the config) writes the files to `project\\output_files\\_run_<id>\\<TYPE>\\<serial - description>\\` and sends nothing. With a schedule it generates at full speed instead of waiting out the hour; add `--paced` to keep the per-minute timing. A dry run never deletes earlier `_run_*` folders. A dry run does not need `upload_path` or `http_url`, so freshly scanned slots work too; a real run skips any slot that has neither. Narrow it with `--type SFTP-EMAIL --slot 5 --total 200`. The CSV manifest lists every generated file with its path.
 
 ## Commands
 
