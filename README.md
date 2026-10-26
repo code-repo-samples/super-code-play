@@ -1,6 +1,6 @@
 # sftp_load
 
-One script, one `config.json`, one `.env`. Generates uniquely named copies of your sample files and delivers them over SFTP (`upload_path`) or HTTP multipart POST (`http_url`), then writes an HTML report, a CSV manifest and a log.
+One script, one `config.py` (plus `integrations.py`), one `.env`. Generates uniquely named copies of your sample files and delivers them over SFTP (`upload_path`) or HTTP multipart POST (`http_url`), then writes an HTML report, a CSV manifest and a log.
 
 ## Setup (Windows)
 
@@ -9,21 +9,36 @@ pip install -r requirements.txt
 copy .env.example .env      (then edit SFTP_HOST, SFTP_USER, SFTP_PASSWORD or SFTP_KEY_FILE)
 ```
 
-Folder layout (all relative to config.json, changeable in the config):
+Folder layout (all relative to config.py, changeable in the config):
 
 ```
-config.json  .env  sftp_load.py
+config.py  .env  sftp_load.py
 project\samples\<TYPE>\<serial> - <description>\<one sample file>
 project\output_files   project\reports   project\logs   project\state
 ```
 
 `<TYPE>` folders can be written `SFTP - EMAIL` on disk and `SFTP-EMAIL` in the config; spaces are ignored. The serial is matched as a whole number, so `29` never matches `290` or `129`.
 
+## Config: one control file plus integration definitions
+
+`config.py` is the control panel. It is plain Python, so settings can be commented, copied, or adjusted directly. `integrations.py` contains the individual integration records (targets, type/slot, tags and per-integration overrides); keeping those records separate is optional and does not change the run controls.
+
+- The safe default is `ACTIVE_SCHEDULE = "off"`, `ACTIVE_FILTER = "everything"`, `CONFIG["total"] = 5`, and `CONFIG["dry_run"] = True`. Running the program without arguments therefore generates a five-file smoke test and does not upload anything.
+- For a real upload, set `CONFIG["dry_run"] = False` and confirm the target/prefix values before running. For an exact file-count run, set `CONFIG["total"] = 5` (or another count). Set it to `None` to use `defaults["copies"]` or an enabled schedule.
+- For a timed workload, choose a schedule in `ACTIVE_SCHEDULE`; set `CONFIG["minutes"] = 5` to use only the first five minutes, or `None` for the full schedule. CLI options such as `--minutes`, `--total`, `--type`, `--mode`, and `--dry-run` override file settings.
+- Ready-made schedule examples cover per-type totals, several hours with equal or different totals per hour, flat rates, and repeatable random patterns. Filter examples cover one type, one slot, several slots, and several types. Copy an entry to customize it.
+- Below them is the `CONFIG` dict with every setting and a comment explaining it. Use `True` / `False` / `None` (the JSON snippets elsewhere in this README say `true` / `false` / `null`).
+- `integrations.py` holds one entry per type and slot (target, tags and so on). Comment out a line or a whole block to switch it off. `scan` appends new entries at the end and does not touch the rest of the file.
+- Command line options always win over the file: `--type`, `--total`, `--minutes`, `--mode`, `--dry-run`.
+- Without `--config`, the program uses `config.py`, or `config.json` if there is no `config.py`. An old JSON file still works.
+- To move an existing JSON setup: `python sftp_load.py convert --config config.json`. It writes `config.py` and `integrations.py` next to it (existing ones are saved as `.bak`) and keeps all your values.
+- A mistake in the file is reported with its line number, for example `config.py, line 173: invalid syntax`.
+
 ## Command cheat sheet (start here)
 
 Use the current `sftp_load.py` from the zip (rename it if you like, for example `sftp-upload-v2.py`). Type `--total 5` with a space; `--total5` is not recognised. An older copy fails with `Invalid schedule block` even for `--total`.
 
-Every command starts with `python sftp_load.py`. Add `--dry-run` to any `run` to generate files only (nothing is uploaded).
+Every command starts with `python sftp_load.py`. The default config is intentionally a safe five-file dry run. Add `--dry-run` to any `run` to force generate-only mode (nothing is uploaded).
 
 **Smoke tests (do these first)**
 
@@ -64,13 +79,13 @@ Examples: `run --mode functional --type SFTP-EMAIL:5 --total 20` (check 20 files
 
 **After a run** open `project\reports\report_<mode>_<id>.html` (summary, every file, chart) and `manifest_<mode>_<id>.csv` (every file). Logs are in `project\logs`.
 
-## Quick start: one hour, 25,000 files
+## Quick start: safe smoke test first
 
 ```
 python sftp_load.py scan                          once, and again whenever you add sample folders
 python sftp_load.py check                         look at the plan, send nothing
-python sftp_load.py run --dry-run                 generate all 25,000 files into project\\output_files, upload nothing (takes seconds)
-python sftp_load.py run --mode performance        the real one-hour run (type YES at the prompt, or add --yes)
+python sftp_load.py run --dry-run --total 5       generate exactly 5 files into project\\output_files, upload nothing
+# After reviewing config.py, set dry_run=False and choose a schedule for a real run.
 ```
 
 `type_totals` names must match your `<TYPE>` folder names (`SFTP-HTTP`, `SFTP-SFTP`, `SFTP-EMAIL`; spaces ignored). `check` warns when a type has no ready integration.
@@ -79,10 +94,13 @@ python sftp_load.py run --mode performance        the real one-hour run (type YE
 
 `--dry-run` (or `"output_mode": "generate_only"` in the config) writes the files to `project\\output_files\\_run_<id>\\<TYPE>\\<serial - description>\\` and sends nothing. With a schedule it generates at full speed instead of waiting out the hour; add `--paced` to keep the per-minute timing. A dry run never deletes earlier `_run_*` folders. A dry run does not need `upload_path` or `http_url`, so freshly scanned slots work too; a real run skips any slot that has neither. Narrow it with `--type SFTP-EMAIL --slot 5 --total 200`. The CSV manifest lists every generated file with its path.
 
+
+**Important for this uploaded copy:** `project/samples` contains only placeholder files, not real integration payloads, and `integrations.py` currently has two example entries. The default dry-run is only a wiring/smoke test; it does not validate real payloads or credentials. Before a real upload, restore your actual sample folders, verify every target (the HTTP URL in the example entry is a placeholder), and consider setting `sample_fallback` to `off` so missing samples are skipped instead of replaced by a dummy file.
+
 ## Commands
 
 ```
-python sftp_load.py scan                      add every sample folder missing from config.json (backup kept as config.json.bak)
+python sftp_load.py scan                      add every sample folder missing from integrations.py (backup kept as integrations.py.bak)
 python sftp_load.py check                     resolve folders and files, show example renamed files, send nothing
 python sftp_load.py run --mode functional     full validation, files on disk, every upload checked on the server
 python sftp_load.py run --mode performance --total 20000 --yes
@@ -129,7 +147,7 @@ Ctrl+C stops handing out new files, finishes the ones in flight and writes the r
 
 ## Scheduled runs (random files per minute, hourly totals, multi-hour)
 
-Add a `schedule` block to `config.json` (it replaces batch size / pause / `total` / `max_files_per_hour` while enabled):
+Choose or edit a schedule in `config.py` (`SCHEDULES`, selected by `ACTIVE_SCHEDULE`) (it replaces batch size / pause / `total` / `max_files_per_hour` while enabled):
 
 ```json
 "schedule": { "enabled": true, "hours": 5, "per_hour": 15000, "profile": "random",
@@ -173,3 +191,19 @@ Keep the PC awake and the terminal open for the whole run. There is no resume af
 python mock_servers.py        (SFTP on 127.0.0.1:2222 user test / password test, HTTP on 127.0.0.1:8080)
 ```
 Point `.env` at it and use `http://127.0.0.1:8080/x` as an `http_url`.
+
+## Troubleshooting: "sample folder has no file"
+
+The message prints the exact folder it looked in. Compare it with the folder you see in your editor. `python sftp_load.py check` also prints `Samples folder in use`. The program takes `samples_directory` from `config.py` (a relative path is relative to the config file's folder), so a second copy of the project, or a config pointing at another `project\samples`, will show an empty folder. A file one folder level down is used automatically (with a warning). Files must be saved on disk and fully downloaded if the folder is in OneDrive.
+
+## Reading the report of a small test
+
+With `--total N` smaller than the number of integrations, the N files go one each to different integrations, spread over the types (first of every type, then the second of every type, and so on). Types that got no file show **NO FILES ASSIGNED**, not an error. **Integrations tested** is how many received a file; **skipped** only counts integrations that could not run (see the warnings list for why). Files/hour and the target are shown as n/a for generate-only runs and for runs under 30 seconds or 50 files, because a rate from a few files is meaningless. The **Warnings / errors** card lists every notice at the bottom of the report, for example a replace tag that is not in a sample file.
+
+## Integrations without a sample file (dummy fallback)
+
+By default an integration whose sample folder is missing or empty is skipped. Set `"sample_fallback": "dummy"` to send a placeholder file instead, and name it with `"sample_fallback_file": "Folder structure latest.xlsx"` (put it in the samples folder; if you leave the name out, the first file directly in the samples folder is used). Each use is listed as a warning in the report, but only for integrations that actually sent files in that run.
+
+## What the report shows
+
+Only integrations that were part of the run: the ones that received files. Integrations that are in `config.py` but got no files (for example a 5-file test over 41 integrations) are left out, as are their warnings. The "skipped" card appears only when a selected integration could not run.

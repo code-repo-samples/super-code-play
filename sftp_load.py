@@ -4,9 +4,13 @@
 sftp_load.py - integration load / functional test tool.
 
 Commands
-    python sftp_load.py run   [--config config.json] [--mode functional|performance] [options]
-    python sftp_load.py scan  [--config config.json]     add integrations found in the samples folder
-    python sftp_load.py check [--config config.json]     resolve folders/files only, send nothing
+    python sftp_load.py run   [--config config.py] [--mode functional|performance] [options]
+    python sftp_load.py scan  [--config config.py]       add integrations found in the samples folder
+    python sftp_load.py check [--config config.py]       resolve folders/files only, send nothing
+    python sftp_load.py convert --config config.json     turn an old JSON config into config.py + integrations.py
+
+The config is config.py (commented Python, preferred) or a .json file; without --config, config.py is used if it
+exists, otherwise config.json.
 
 Delivery is chosen per integration: http_url -> HTTP multipart POST, upload_path -> SFTP.
 SFTP login lives in .env (SFTP_HOST, SFTP_PORT, SFTP_USER, SFTP_PASSWORD or SFTP_KEY_FILE).
@@ -37,7 +41,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 VERSION = "1.1"
-COMMANDS = ("run", "scan", "check")
+COMMANDS = ("run", "scan", "check", "convert")
 
 PRESETS = {
     "functional": {"storage": "disk", "workers": 1, "verify_remote": True, "max_files_per_hour": None},
@@ -267,7 +271,7 @@ def parse_schedule(raw, keep_types=None, only_minutes=None):
         for t in totals:
             minutes.extend(plan_hour(t, lo, hi, profile, rng))
     except (ValueError, TypeError) as ex:
-        raise SystemExit(f"Invalid schedule block in config.json: {ex}")
+        raise SystemExit(f"Invalid schedule in the config: {ex}")
     if only_minutes and only_minutes < len(minutes):                 # quick test: just the first N minutes of the plan
         minutes = minutes[:only_minutes]
         new, old = sum(minutes), sum(totals)
@@ -467,6 +471,7 @@ class Integration:
         self.delivery = "http" if self.http_url else ("sftp" if self.upload_path else None)
         # resolved later
         self.ok, self.skip_reason = False, ""
+        self.notes = []
         self.folder = self.template_name = self.template = None
         self.mode_used = ""
         self.tag_hits = {}
@@ -560,7 +565,7 @@ class Runner:
         flt0 = build_filter(cfg, args)
         keep = {norm_key(e.get("type", "")) for e in flt0} if flt0 else None
         self.sched = None if getattr(args, "total", None) else parse_schedule(
-            cfg.get("schedule"), keep, getattr(args, "minutes", None))
+            cfg.get("schedule"), keep, (getattr(args, "minutes", None) if getattr(args, "minutes", None) is not None else cfg.get("minutes")))
         if self.sched is None and cfg.get("schedule") and getattr(args, "total", None):
             self.log_early = f"--total {args.total} given: the schedule is not used, sending exactly {args.total} file(s)"
         self.minute_s = self.sched["minute_seconds"] if self.sched else 60.0
@@ -633,30 +638,46 @@ class Runner:
             if it.delivery == "http" and not re.match(r"^https?://", it.http_url, re.I):
                 skip("http_url must start with http:// or https://")
                 continue
+            fallback = str(self.cfg.get("sample_fallback", "off")).lower() == "dummy"
+            folder, files, why = None, [], ""
             tinfo = index.get(norm_key(it.type))
             if not tinfo:
-                skip(f"no folder for type '{it.type}' under {self.samples_dir}")
-                continue
-            try:
-                serial = int(str(it.serial).strip())
-            except ValueError:
-                skip(f"serial '{it.serial}' is not a number")
-                continue
-            folders = tinfo[1].get(serial, [])
-            if not folders:
-                skip(f"no folder starting with '{serial} -' under {tinfo[0].name}")
-                continue
-            if len(folders) > 1:
-                skip(f"{len(folders)} folders start with '{serial} -' under {tinfo[0].name}; ambiguous")
-                continue
-            files = sorted(f for f in folders[0].iterdir()
-                           if f.is_file() and f.name.lower() not in IGNORED_FILES and not f.name.startswith("~$"))
+                why = f"no folder for type '{it.type}' under {self.samples_dir}"
+            else:
+                try:
+                    serial = int(str(it.serial).strip())
+                except ValueError:
+                    serial, why = None, f"serial '{it.serial}' is not a number"
+                if serial is not None:
+                    folders = tinfo[1].get(serial, [])
+                    if not folders:
+                        why = f"no folder starting with '{serial} -' under {tinfo[0].name}"
+                    elif len(folders) > 1:
+                        why = f"{len(folders)} folders start with '{serial} -' under {tinfo[0].name}; ambiguous"
+                    else:
+                        folder = folders[0]
+                        ok_file = lambda f: f.is_file() and f.name.lower() not in IGNORED_FILES and not f.name.startswith("~$")
+                        files = sorted(f for f in folder.iterdir() if ok_file(f))
+                        if not files:                          # nothing directly inside: accept files one folder level down
+                            files = sorted(f for d in folder.iterdir() if d.is_dir() for f in d.iterdir() if ok_file(f))
+                            if files:
+                                it.notes.append(f"{it.key}: no file directly in '{folder.name}', using "
+                                                f"'{files[0].relative_to(folder)}'")
+                        if not files:
+                            items = list(folder.iterdir())
+                            why = (f"sample folder has no file. Looked in: {folder.resolve()}  ({len(items)} item(s) there, "
+                                   f"{sum(1 for x in items if x.is_dir())} sub-folder(s)); is this the same folder you see in your editor?")
+            if not files and fallback:
+                dummy = self.find_dummy()
+                if dummy:
+                    files, folder = [dummy], dummy.parent
+                    it.notes.append(f"{it.key}: no sample file ({why}); using dummy file '{dummy.name}' (sample_fallback = dummy)")
             if not files:
-                skip(f"sample folder '{folders[0].name}' has no file")
+                skip(why)
                 continue
             if len(files) > 1:
-                self.warn(f"{it.key}: {len(files)} files in sample folder, using '{files[0].name}'")
-            it.folder, it.template_name = folders[0], files[0].name
+                it.notes.append(f"{it.key}: {len(files)} files in sample folder, using '{files[0].name}'")
+            it.folder, it.template_name = folder, files[0].name
             it.template = files[0].read_bytes()
             stem, _ = split_ext(it.template_name)
             it.mode_used = pick_mode(stem, it.n, it.name_mode)
@@ -664,8 +685,26 @@ class Runner:
                 hits = len(sp.rx.findall(it.template))
                 it.tag_hits[sp.tag] = hits
                 if hits == 0:
-                    self.warn(f"{it.key}: tag '{sp.tag}' not found in sample file (skipped)")
+                    it.notes.append(f"{it.key}: tag '{sp.tag}' not found in sample file (skipped)")
             it.ok = True
+
+    def find_dummy(self):
+        """File used when an integration has no sample of its own (sample_fallback = dummy)."""
+        if getattr(self, "_dummy", None) is None:
+            want = self.cfg.get("sample_fallback_file")
+            root = self.samples_dir
+            good = lambda f: f.is_file() and f.name.lower() not in IGNORED_FILES and not f.name.startswith("~$")
+            pick = None
+            if want:
+                w = Path(want)
+                cand = [w if w.is_absolute() else root / w]
+                cand += sorted(f for f in root.rglob("*") if good(f) and f.name.lower() == w.name.lower())
+                pick = next((c for c in cand if c.is_file()), None)
+            if pick is None:
+                pick = next(iter(sorted(f for f in root.iterdir() if good(f))), None) or \
+                       next(iter(sorted(f for f in root.rglob("*") if good(f))), None)
+            self._dummy = pick or False
+        return self._dummy or None
 
     # ---- plan
     def build_plan(self):
@@ -695,6 +734,13 @@ class Runner:
                     quotas[idxs[j]] += 1
             for t in sorted({it.type for it in ok if norm_key(it.type) not in {norm_key(x) for x in tt}}):
                 self.warn(f"type_totals has no entry for type '{t}', so it sends nothing in this run")
+        elif total and total < len(ok):                          # fewer files than integrations: one each, spread over types
+            seen_t, order = Counter(), []
+            for i, it in enumerate(ok):
+                seen_t[it.type] += 1
+                order.append((seen_t[it.type], i))               # 1st of every type, then 2nd of every type, ...
+            for _, i in sorted(order)[:total]:
+                quotas[i] = 1
         elif total:
             caps = [min(int(it.max_copies), total) if it.max_copies else total for it in ok]
             for k, i in enumerate(interleave(caps, [it.weight for it in ok])):
@@ -707,6 +753,9 @@ class Runner:
         for it, q in zip(ok, quotas):
             it.planned = q
             it.counts = Counter()
+            if q:
+                for note in it.notes:                          # notices only for integrations that really run
+                    self.warn(note)
         self.stride = 1 + max([len(it.tags) for it in ok] + [0])
         self.streams = {}
         if self.sched:
@@ -737,20 +786,21 @@ class Runner:
         self.planned = sum(quotas)
 
     def clip_schedule(self, n):
+        """Fewer files can be generated than planned (a type has no ready integration, max_copies caps):
+        scale every minute down proportionally so the run keeps its full duration."""
         S = self.sched
-        if n >= S["total"]:
+        old = S["total"]
+        if n >= old:
             return
-        self.warn(f"Only {n:,} of the {S['total']:,} scheduled files can be generated (max_copies caps); "
-                  f"the schedule is trimmed from the end")
-        left, out = n, []
+        self.warn(f"Only {n:,} of the {old:,} scheduled files can be generated (a type without a ready integration, "
+                  f"or max_copies caps); every minute is scaled down proportionally")
+        acc, done, out = 0, 0, []
         for c in S["minutes"]:
-            c = min(c, left)
-            out.append(c)
-            left -= c
-        while out and out[-1] == 0:
-            out.pop()
+            acc += c * n
+            v = acc // old - done
+            out.append(v)
+            done += v
         S["minutes"], S["total"] = out, n
-        S["hours"] = (len(out) + 59) // 60
         S["totals"] = [sum(out[h * 60:(h + 1) * 60]) for h in range(S["hours"])]
 
     def describe_schedule(self):
@@ -1313,8 +1363,11 @@ def build_data(rn: Runner):
     by_gi = {}
     for r in rn.rows:
         by_gi.setdefault(r["gi"], []).append(r)
-    integrations, types = [], {}
+    integrations, types, newidx = [], {}, {}
     for gi, it in enumerate(rn.ok_ints):
+        if not it.planned and gi not in by_gi:
+            continue                                   # selected in the config but got no files in this run: not reported
+        newidx[gi] = len(integrations)
         rows = by_gi.get(gi, [])
         c = Counter(r["status"] for r in rows)
         proc = len(rows)
@@ -1351,6 +1404,7 @@ def build_data(rn: Runner):
             not_attempted=max(0, it.planned - proc), status=status, ev=dict(kv=kv, svg=svg)))
         t = types.setdefault(it.type, dict(type=it.type, integrations=0, planned=0, processed=0, passed=0,
                                            failed=0, unverified=0, not_attempted=0, skipped=0))
+        t["ready"] = t.get("ready", 0) + 1
         t["integrations"] += 1 if proc else 0
         t["planned"] += it.planned
         t["processed"] += proc
@@ -1359,11 +1413,12 @@ def build_data(rn: Runner):
         t["unverified"] += unv
         t["not_attempted"] += max(0, it.planned - proc)
     for it in rn.ints:
-        if not it.ok:
-            types.setdefault(it.type, dict(type=it.type, integrations=0, planned=0, processed=0, passed=0, failed=0,
-                                           unverified=0, not_attempted=0, skipped=0))["skipped"] += 1
+        if not it.ok and it.type in types:
+            types[it.type]["skipped"] += 1
     for t in types.values():
-        t["status"] = ("FAIL" if t["failed"] else "SKIPPED" if t["processed"] == 0 else
+        t["status"] = ("FAIL" if t["failed"] else
+                       "NO FILES ASSIGNED" if t["processed"] == 0 and t.get("ready") and not t["planned"] else
+                       "SKIPPED" if t["processed"] == 0 else
                        "INCOMPLETE" if t["not_attempted"] else "PASS")
     files = []
     cap_total = int(opt(rn.cfg, "report_html_max_rows", 20000))
@@ -1374,20 +1429,23 @@ def build_data(rn: Runner):
             truncated += 1
             continue
         shown[r["gi"]] += 1
-        files.append([r["gi"], r["seq"], r["batch"], r["gen"], r["status"], r["http"], r["lsize"], r["rsize"],
+        files.append([newidx.get(r["gi"], r["gi"]), r["seq"], r["batch"], r["gen"], r["status"], r["http"], r["lsize"], r["rsize"],
                       r["verify"], r["mtime"], r["perms"], r["owner"], r["checked"], r["err"], r["att"],
                       r["worker"].replace("worker_", "w"), r["sha"], r["lpath"], r["tags"], r["resp"]])
     n_min = (max(rn.per_minute) + 1) if rn.per_minute else 0
     per_min = [rn.per_minute.get(i, 0) for i in range(n_min)]
     tgt = rn.target_per_hour
+    meaningless = rn.dry or el < 30 or done < 50          # too short (or nothing really sent) to quote a rate
     summary = dict(planned=planned, processed=done, passed=cnt["PASSED"] + cnt["GENERATED"], failed=cnt["FAILED"],
                    unverified=cnt["UNVERIFIED"], not_attempted=max(0, planned - done),
                    success_pct=round(100.0 * (cnt["PASSED"] + cnt["GENERATED"]) / done, 2) if done else 0.0,
                    error_pct=round(100.0 * cnt["FAILED"] / done, 2) if done else 0.0,
-                   rate_per_sec=round(done / el, 2), rate_per_hour=round(rate_h), target_per_hour=tgt,
-                   target_met=(rate_h >= tgt) if tgt else None,
-                   selected=len(rn.ints), tested=sum(1 for i in integrations if i["processed"]),
-                   skipped=sum(1 for it in rn.ints if not it.ok))
+                   rate_per_sec=None if meaningless else round(done / el, 2),
+                   rate_per_hour=None if meaningless else round(rate_h), target_per_hour=None if meaningless else tgt,
+                   rate_note="generate only" if rn.dry else "run too short for a rate",
+                   target_met=None if meaningless else ((rate_h >= tgt) if tgt else None),
+                   selected=len(integrations), tested=sum(1 for i in integrations if i["processed"]),
+                   skipped=sum(1 for it in rn.ints if not it.ok and it.type in types))
     meta = dict(title="Integration execution report", mode=rn.mode, status=rn.status, run_id=rn.run_id,
                 started=utc(rn.t_start) + " UTC", finished=utc(rn.t_end) + " UTC", duration=fmt_dur(el),
                 storage=rn.storage, workers=rn.workers, dry=rn.dry, version=VERSION,
@@ -1404,8 +1462,9 @@ def build_data(rn: Runner):
     if truncated:
         warns.append(["WARNING", f"This HTML shows {len(files):,} of {len(rn.rows):,} file rows ({truncated:,} passed rows "
                                  f"left out to keep the page small; every failed row is kept). The CSV manifest has all rows. "
-                                 f"Change report_html_max_rows in config.json to show more."])
-    skipped = [dict(key=it.key, name=it.integration, reason=it.skip_reason) for it in rn.ints if not it.ok]
+                                 f"Change report_html_max_rows in the config to show more."])
+    skipped = [dict(key=it.key, name=it.integration, reason=it.skip_reason) for it in rn.ints
+               if not it.ok and it.type in types]
     return dict(meta=meta, summary=summary, types=list(types.values()), integrations=integrations, files=files,
                 warnings=warns, perf=perf, skipped=skipped)
 
@@ -1500,9 +1559,9 @@ function build(){
  <div class="card ${S.failed?'bad':''}"><b>${fmt(S.failed)}</b><span>Failed (${S.error_pct}%)</span></div>
  <div class="card ${S.unverified?'warn':''}"><b>${fmt(S.unverified)}</b><span>Unverified</span></div>
  <div class="card ${S.not_attempted?'warn':''}"><b>${fmt(S.not_attempted)}</b><span>Not attempted</span></div>
- <div class="card ${ok}"><b>${fmt(S.rate_per_hour)}</b><span>Files/hour (${S.rate_per_sec}/s)${S.target_per_hour?' &middot; target '+fmt(S.target_per_hour)+(S.target_met?' met':' not met'):''}</span></div>
- <div class="card"><b>${S.tested}/${S.selected}</b><span>Integrations tested</span></div>
- <div class="card ${S.skipped?'bad':''}"><b>${S.skipped}</b><span>Integrations skipped</span></div>
+ <div class="card ${ok}"><b>${S.rate_per_hour==null?'n/a':fmt(S.rate_per_hour)}</b><span>${S.rate_per_hour==null?'Files/hour ('+S.rate_note+')':'Files/hour ('+S.rate_per_sec+'/s)'}${S.target_per_hour?' &middot; target '+fmt(S.target_per_hour)+(S.target_met?' met':' not met'):''}</span></div>
+ <div class="card"><b>${S.tested}</b><span>Integrations tested</span></div>
+ ${S.skipped?`<div class="card bad"><b>${S.skipped}</b><span>Integrations skipped</span></div>`:''}
  <div class="card ${D.warnings.length?'warn':''}"><b>${D.warnings.length}</b><span>Warnings / errors</span></div></div>`;
  if(D.skipped.length)h+=`<section><h2 class="red">Skipped integrations (not run)</h2><table><tr><th>Integration</th><th>Reason</th></tr>${D.skipped.map(s=>`<tr><td>${esc(s.key)}<br><span class="m">${esc(s.name)}</span></td><td>${esc(s.reason)}</td></tr>`).join('')}</table></section>`;
  h+=`<section><h2>Summary by type</h2><table><tr><th>Type</th><th class="num">Integrations tested</th><th class="num">Planned</th><th class="num">Files placed</th><th class="num">Passed</th><th class="num">Failed</th><th class="num">Unverified</th><th class="num">Not attempted</th><th>Status</th></tr>
@@ -1578,6 +1637,7 @@ def cmd_scan(cfg, cfg_path, args):
         raise SystemExit(f"Samples folder not found: {samples}")
     index = index_samples(samples)
     ints = cfg.setdefault("integrations", [])
+    n_before = len(ints)
     have = {(norm_key(i.get("type", "")), str(i.get("slot", ""))) for i in ints}
     seen = set()
     added = 0
@@ -1599,11 +1659,20 @@ def cmd_scan(cfg, cfg_path, args):
             added += 1
     missing = [f"{i.get('type')} slot {i.get('slot')}" for i in ints
                if (norm_key(i.get("type", "")), str(i.get("slot", ""))) not in seen]
-    if added:
-        shutil.copy(cfg_path, cfg_path.with_suffix(".json.bak"))
-        cfg_path.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"Scan done: {added} integration(s) added to {cfg_path.name}"
-          f"{' (backup: ' + cfg_path.name + '.bak)' if added else ''}.")
+    if cfg_path.suffix.lower() == ".py":
+        target = cfg_path.parent / "integrations.py"
+        if added:
+            if target.exists():
+                shutil.copy(target, target.with_suffix(".py.bak"))
+            append_integrations_py(target, ints[n_before:])
+        print(f"Scan done: {added} integration(s) added to {target.name}"
+              f"{' (backup: ' + target.name + '.bak)' if added and target.with_suffix('.py.bak').exists() else ''}.")
+    else:
+        if added:
+            shutil.copy(cfg_path, cfg_path.with_suffix(".json.bak"))
+            cfg_path.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f"Scan done: {added} integration(s) added to {cfg_path.name}"
+              f"{' (backup: ' + cfg_path.name + '.bak)' if added else ''}.")
     print(f"Sample folders found: {len(seen)}.")
     if missing:
         print(f"In config but no sample folder ({len(missing)}):")
@@ -1615,6 +1684,7 @@ def cmd_scan(cfg, cfg_path, args):
 def cmd_check(rn: Runner):
     rn.select()
     rn.resolve()
+    print(f"Samples folder in use: {rn.samples_dir.resolve()}\n")
     ok = [it for it in rn.ints if it.ok]
     print(f"Selected {len(rn.ints)} | ready {len(ok)} | skipped {len(rn.ints) - len(ok)}\n")
     for it in rn.ints:
@@ -1622,6 +1692,8 @@ def cmd_check(rn: Runner):
             ex = build_name(it.template_name, "0123456789"[: it.n].rjust(it.n, "0"), it.n, it.suffix, it.mode_used)
             print(f"OK    {it.key:<26} {it.delivery:<4} {it.template_name}\n      -> {ex}   [{it.mode_used}] tags: "
                   f"{', '.join(f'{k}={v}' for k, v in it.tag_hits.items()) or '-'}")
+            for note in it.notes:
+                print(f"      note: {note}")
         else:
             print(f"SKIP  {it.key:<26} {it.skip_reason}")
     if rn.sched:
@@ -1631,6 +1703,278 @@ def cmd_check(rn: Runner):
     return 0 if len(ok) == len(rn.ints) else 1
 
 
+# --------------------------------------------------------------------------- python config (config.py + integrations.py)
+def load_config(path: Path):
+    """config.py (a CONFIG dict, may import integrations.py) or a legacy .json file."""
+    if path.suffix.lower() != ".py":
+        return json.loads(path.read_text(encoding="utf-8-sig"))
+    import importlib.util
+    folder, old_flag = str(path.parent), sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    sys.path.insert(0, folder)
+    sys.modules.pop("integrations", None)                  # always read the current file, never a cached copy
+    try:
+        spec = importlib.util.spec_from_file_location("sftp_config", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    except SyntaxError as ex:
+        raise SystemExit(f"{Path(ex.filename or path).name}, line {ex.lineno}: {ex.msg}\n  {(ex.text or '').strip()}")
+    except Exception as ex:
+        raise SystemExit(f"Error while reading {path.name}: {type(ex).__name__}: {ex}")
+    finally:
+        sys.path.remove(folder)
+        sys.dont_write_bytecode = old_flag
+    cfg = getattr(mod, "CONFIG", None)
+    if not isinstance(cfg, dict):
+        raise SystemExit(f"{path.name} must define a dict called CONFIG")
+    return copy.deepcopy(cfg)
+
+
+def py_lit(v, ind=0, width=100):
+    """Python source for a JSON-like value: double-quoted strings, short dicts on one line."""
+    pad = " " * ind
+    if isinstance(v, str):
+        return json.dumps(v, ensure_ascii=False)
+    if isinstance(v, dict):
+        if not v:
+            return "{}"
+        simple = all(not isinstance(x, dict) and (not isinstance(x, list) or all(not isinstance(i, (dict, list)) for i in x))
+                     for x in v.values())
+        flat = "{ " + ", ".join(f"{json.dumps(str(k), ensure_ascii=False)}: {py_lit(x)}" for k, x in v.items()) + " }"
+        if simple and len(flat) + ind <= width:
+            return flat
+        inner = "".join(f"{pad}    {json.dumps(str(k), ensure_ascii=False)}: {py_lit(x, ind + 4, width)},\n" for k, x in v.items())
+        return "{\n" + inner + pad + "}"
+    if isinstance(v, list):
+        if not v:
+            return "[]"
+        if all(not isinstance(i, (dict, list)) for i in v):
+            return "[" + ", ".join(py_lit(i) for i in v) + "]"
+        return "[\n" + "".join(f"{pad}    {py_lit(i, ind + 4, width)},\n" for i in v) + pad + "]"
+    return repr(v)
+
+
+def render_integration(d):
+    lines = ["    {"] + [f"        {json.dumps(k, ensure_ascii=False)}: {py_lit(v, 8)}," for k, v in d.items()] + ["    },"]
+    return "\n".join(lines)
+
+
+INTEGRATIONS_HEADER = """# integrations.py - one entry per integration (type + slot). Imported by config.py.
+# Edit freely: put a # in front of any line (or a whole { ... } block) to switch it off.
+# `python sftp_load.py scan` appends new entries for new sample folders at the end of the list.
+#
+# Fields
+#   "type"            folder name under project/samples, e.g. "SFTP-HTTP", "SFTP-SFTP", "SFTP-EMAIL"
+#   "slot"            the number the sample folder starts with ("12 - ..." -> "12")
+#   "upload_path"     SFTP target folder (must start with upload_path_policy.required_prefix) - or None
+#   "http_url"        HTTP target URL (use this OR upload_path) - or None
+#   "http_form_field" name of the multipart form part ("" = empty name, like curl -F '=@file')
+#   "replace_tags"    XML tags whose text gets a new unique value in every file, e.g. ["DocNum"]
+#   "copies"          files for this integration when no total / schedule is set (default: defaults["copies"])
+#   "max_copies"      upper limit for this integration whatever the total is
+#   "weight"          bigger = gets more files than the others in a round robin (default 1)
+#   "name_mode"       force the file-name rule: "token" | "tail" | "insert" (default: automatic)
+#   "replace_last_n" / "append_suffix" / "tag_value_length"   per-integration overrides of defaults
+#   "http_headers"    extra headers for this integration only
+#   "label", "integration", "sender", "receiver", "data_type", "sr_no"   descriptive only (shown in reports)
+
+INTEGRATIONS = [
+"""
+
+
+CONFIG_SPEC = [
+    ("mode", "functional", ["functional = 1 worker, files written to disk, every upload checked on the server (small, careful runs).",
+                            "performance = 4 workers, files kept in memory, no per-file check (long scheduled runs).",
+                            "The command line --mode overrides this."]),
+    ("dry_run", False, ["True = generate files only, upload nothing (same as --dry-run on the command line)."]),
+    ("output_mode", "generate_and_upload", ['"generate_and_upload" | "generate_only" (generate_only = same as dry_run).']),
+    ("samples_directory", "project\\samples", ["Where the sample files live: <samples>/<TYPE>/<slot> - <description>/<sample file>"]),
+    ("output_directory", "project\\output_files", ["Generated files are written here (functional mode, dry runs, or storage = disk)."]),
+    ("reports_directory", "project\\reports", ["HTML report and CSV manifest of every run."]),
+    ("logs_directory", "project\\logs", ["One log file per run."]),
+    ("state_directory", "project\\state", ["counter.json lives here. NEVER delete it: it keeps file numbers unique across runs."]),
+    ("total", None, ["A number = send exactly that many files, dealt over the selected integrations.",
+                     "Ignored while a schedule is active. None = use `copies` per integration."]),
+    ("defaults", {"copies": 100, "replace_last_n": 10, "append_suffix": "", "tag_value_length": 10, "http_form_field": ""},
+     ["copies           files per integration when no total/schedule is set",
+      "replace_last_n   how many digits of the unique number go into each file name",
+      "append_suffix    text added after the number, before the extension",
+      "tag_value_length digits written into replace_tags values",
+      'http_form_field  default multipart field name ("" = empty name, like curl -F \'=@file\')']),
+    ("batch_size", 100, ["BATCH MODE (only used when ACTIVE_SCHEDULE = \"off\"): send batch_size files, wait, repeat."]),
+    ("batch_pause_seconds", 5, ["Pause between batches (batch mode only)."]),
+    ("type_run_settings", {}, ["Batch size / pause per type (batch mode only), e.g.",
+                               '{ "SFTP-HTTP": { "batch_size": 100, "batch_pause_seconds": 5 } }']),
+    ("sample_fallback", "off", ['"off" = an integration without a sample file is skipped.',
+                                '"dummy" = it sends the file named in sample_fallback_file instead (each use is listed as a warning).']),
+    ("sample_fallback_file", None, ['Name of the placeholder file, e.g. "Folder structure latest.xlsx" (searched under samples_directory).',
+                                    "None = the first file directly inside samples_directory."]),
+    ("failure_policy", {"warn_after_seconds": 30, "abort_after_seconds": 120, "min_failures": 10},
+     ["Failed files never stop a run by themselves. If EVERY file fails continuously for warn_after_seconds an ERROR is",
+      "logged; after abort_after_seconds (and at least min_failures files) the run stops, writes the report, exit code 3.",
+      "abort_after_seconds 0 = never stop automatically."]),
+    ("abort_after_consecutive_failures", 0, ["Also stop after this many failures in a row (0 = off)."]),
+    ("report_html_max_rows", 20000, ["Above this many files the HTML report lists only the first rows per integration",
+                                     "(failed files are always kept). The CSV manifest always has every row."]),
+    ("workers", None, ["None = use the mode preset (functional 1, performance 4). Or a number, e.g. 8."]),
+    ("storage", None, ['None = mode preset. "disk" = also write generated files to output_directory, "memory" = do not.']),
+    ("verify_remote", None, ["None = mode preset. True = check each uploaded file on the SFTP server, False = trust the upload."]),
+    ("max_files_per_hour", None, ["Hard throttle for the whole run (batch mode only; a schedule paces itself)."]),
+    ("target_files_per_hour", 20000, ["Used only for the 'target met / not met' line in the report of long runs."]),
+    ("retries", 2, ["Extra attempts for a failed upload before it is recorded as FAILED."]),
+    ("end_check", False, ["True = at the end of a performance run list each remote folder once (a poller may have taken files)."]),
+    ("http_headers", {}, ["Headers added to every HTTP upload, e.g. { \"Authorization\": \"Bearer ...\" }."]),
+    ("http_verify_tls", True, ["False = do not verify HTTPS certificates (test servers only)."]),
+    ("cleanup_output_before_run", False, ["True = delete older _run_* folders in output_directory before a real run",
+                                           "(never during a dry run, never a folder another run is still using)."]),
+    ("report_skipped_integrations", True, ["Kept for compatibility."]),
+    ("upload_path_policy", {"required_prefix": "/spice/qa-final", "prompt_before_prefix": True},
+     ["Safety net: an SFTP upload_path outside required_prefix is skipped.",
+      "prompt_before_prefix True = you must type YES before a real run (--yes skips the prompt)."]),
+]
+
+SCHEDULE_EXAMPLES = '''    # ---- examples: copy one, or change the numbers --------------------------------------------------
+    # type_totals = files per TYPE for the whole run; they are mixed evenly through every hour.
+    "one_hour_25k": {
+        "enabled": True, "hours": 1, "per_hour": None,
+        "type_totals": { "SFTP-HTTP": 10000, "SFTP-SFTP": 10000, "SFTP-EMAIL": 5000 },
+        "profile": "random", "min_per_minute": 100, "max_per_minute": 2000, "seed": None, "max_backlog": None,
+    },
+    # same total every hour, no per-type split (all selected integrations share it round robin)
+    "five_hours_15k_each": {
+        "enabled": True, "hours": 5, "per_hour": 15000,
+        "profile": "random", "min_per_minute": 100, "max_per_minute": 2000, "seed": None,
+    },
+    # a different total for every hour (repeat a number for hours that should match)
+    "five_hours_varied": {
+        "enabled": True, "per_hour": [15000, 20000, 15000, 15000, 12000],
+        "profile": "random", "min_per_minute": 100, "max_per_minute": 2000, "seed": None,
+    },
+    # exactly the same count every minute (250 x 60 = 15000 per hour)
+    "flat_15k_per_hour": {
+        "enabled": True, "hours": 1, "per_hour": 15000, "profile": "flat",
+    },
+    # repeat an exact random pattern: put a fixed number in "seed" (the report prints the seed that was used)
+    "repeatable_pattern": {
+        "enabled": True, "hours": 1, "per_hour": 15000,
+        "profile": "random", "min_per_minute": 100, "max_per_minute": 2000, "seed": 12345,
+    },
+'''
+
+FILTER_EXAMPLES = '''    # ---- examples: "slot" can be "all", one number, or a list of numbers ------------------------------
+    "one_type": [ { "type": "SFTP-HTTP", "slot": "all" } ],
+    "one_type_one_slot": [ { "type": "SFTP-HTTP", "slot": [1] } ],
+    "one_type_many_slots": [ { "type": "SFTP-HTTP", "slot": [1, 2, 3] } ],
+    "many_types_all_slots": [ { "type": "SFTP-HTTP", "slot": "all" }, { "type": "SFTP-SFTP", "slot": "all" } ],
+    "many_types_many_slots": [
+        { "type": "SFTP-HTTP", "slot": [1, 2] },
+        { "type": "SFTP-SFTP", "slot": [13, 14, 15] },
+        { "type": "SFTP-EMAIL", "slot": "all" },
+    ],
+'''
+
+
+def build_config_py(cfg):
+    """Turn a (JSON) config dict into a commented config.py."""
+    out = []
+    w = out.append
+    w("# config.py - settings for sftp_load.py. Plain Python: use # for comments, True / False / None.")
+    w("# Run:  python sftp_load.py check      (preview, sends nothing)")
+    w("#       python sftp_load.py run --dry-run --total 5      (generate 5 files, upload nothing)")
+    w("# Command line options (--type, --total, --minutes, --mode, --dry-run ...) always win over this file.")
+    w("# Integrations (type + slot + target) are in integrations.py.")
+    w("")
+    w("from integrations import INTEGRATIONS")
+    w("")
+    w("")
+    w("# " + "=" * 98)
+    w("# 1. WHAT TO RUN - change these two names to switch (everything else can stay as it is)")
+    w("# " + "=" * 98)
+    sched = cfg.get("schedule")
+    rf = (cfg.get("run_filter") or {}).get("slots") or []
+    w('ACTIVE_SCHEDULE = "%s"     # a name from SCHEDULES below; "off" = batch mode (batch_size / pause)' %
+      ("from_json" if sched else "off"))
+    w('ACTIVE_FILTER = "%s"     # a name from FILTERS below; "everything" = every integration in integrations.py' %
+      ("from_json" if rf else "everything"))
+    w("")
+    w("# --- SCHEDULES: how many files, over how many hours (random files per minute, exact hourly totals) ---")
+    w("# profile \"random\": each hour is split into 60 random minute counts between min_per_minute and")
+    w("# max_per_minute that add up EXACTLY to that hour's total; \"flat\": same count every minute.")
+    w("# Files are spread across each minute; a shortfall is carried into the next minute.")
+    w("SCHEDULES = {")
+    w('    "off": None,')
+    if sched:
+        w('    # your schedule, converted from the old JSON file')
+        w('    "from_json": %s,' % py_lit(sched, 4))
+    w(SCHEDULE_EXAMPLES.rstrip("\n"))
+    w("}")
+    w("")
+    w("# --- FILTERS: which types / slots take part (command line --type does the same for one run) ---")
+    w("FILTERS = {")
+    w('    "everything": [],')
+    if rf:
+        w('    "from_json": %s,' % py_lit(rf, 4))
+    w(FILTER_EXAMPLES.rstrip("\n"))
+    w("}")
+    w("")
+    w("")
+    w("# " + "=" * 98)
+    w("# 2. SETTINGS")
+    w("# " + "=" * 98)
+    w("CONFIG = {")
+    known = {"integrations", "schedule", "run_filter"}
+    for key, default, comment in CONFIG_SPEC:
+        known.add(key)
+        val = cfg.get(key, default)
+        w("")
+        for c in comment:
+            w("    # " + c)
+        w(f"    {json.dumps(key)}: {py_lit(val, 4)},")
+    extras = {k: v for k, v in cfg.items() if k not in known and not k.startswith("_")}
+    if extras:
+        w("")
+        w("    # ---- other settings found in your old file ----")
+        for k, v in extras.items():
+            w(f"    {json.dumps(k)}: {py_lit(v, 4)},")
+    w("")
+    w("    # ---- set by the two names at the top; no need to edit these three lines ----")
+    w('    "schedule": SCHEDULES[ACTIVE_SCHEDULE],')
+    w('    "run_filter": { "slots": FILTERS[ACTIVE_FILTER] },')
+    w('    "integrations": INTEGRATIONS,')
+    w("}")
+    return "\n".join(out) + "\n"
+
+
+def cmd_convert(cfg, cfg_path, args):
+    """config.json -> config.py + integrations.py (next to the JSON file)."""
+    out_dir = cfg_path.parent
+    targets = [out_dir / "config.py", out_dir / "integrations.py"]
+    for t in targets:
+        if t.exists():
+            shutil.copy(t, t.with_suffix(".py.bak"))
+            print(f"Existing {t.name} saved as {t.name}.bak")
+    ints = cfg.get("integrations") or []
+    body = INTEGRATIONS_HEADER + "\n".join(render_integration(i) for i in ints) + ("\n" if ints else "") + "]\n"
+    targets[1].write_text(body, encoding="utf-8")
+    targets[0].write_text(build_config_py(cfg), encoding="utf-8")
+    print(f"Wrote {targets[0]} and {targets[1]} ({len(ints)} integration(s)).")
+    print("Next: python sftp_load.py check")
+    return 0
+
+
+def append_integrations_py(path: Path, new_entries):
+    """Add entries at the end of INTEGRATIONS in integrations.py without touching anything else in the file."""
+    if not path.exists():
+        path.write_text(INTEGRATIONS_HEADER + "]\n", encoding="utf-8")
+    text = path.read_text(encoding="utf-8")
+    cut = text.rstrip().rfind("]")
+    if cut < 0:
+        raise SystemExit(f"Cannot find the closing ] of INTEGRATIONS in {path.name}")
+    block = "\n".join(render_integration(e) for e in new_entries) + "\n"
+    head = text[:cut].rstrip("\n") + "\n"
+    path.write_text(head + block + text[cut:], encoding="utf-8")
+
+
 # --------------------------------------------------------------------------- main
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
@@ -1638,7 +1982,7 @@ def main(argv=None):
         argv.insert(0, "run")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("command", choices=COMMANDS)
-    ap.add_argument("--config", default="config.json")
+    ap.add_argument("--config", default=None, help="config.py (default) or a .json file")
     ap.add_argument("--mode", choices=list(PRESETS))
     ap.add_argument("--type", action="append", metavar="TYPE[:SLOTS]",
                     help="run only this type, e.g. SFTP-EMAIL, SFTP-EMAIL:1,3 (slots), 'A,B' (several types), "
@@ -1654,11 +1998,20 @@ def main(argv=None):
                     help="with --dry-run and a schedule: also wait out the per-minute timing (default: generate at full speed)")
     ap.add_argument("--yes", action="store_true", help="skip the upload-prefix confirmation prompt")
     args = ap.parse_args(argv)
-    cfg_path = Path(args.config).resolve()
+    if args.config:
+        cfg_path = Path(args.config).resolve()
+    else:                                                    # config.py first, then config.json; here, then next to the script
+        names = ("config.py", "config.json")
+        cands = [Path.cwd() / n for n in names] + [Path(__file__).resolve().parent / n for n in names]
+        cfg_path = next((c for c in cands if c.exists()), cands[0]).resolve()
     if not cfg_path.exists():
         raise SystemExit(f"Config not found: {cfg_path}")
-    cfg = json.loads(cfg_path.read_text(encoding="utf-8-sig"))
+    cfg = load_config(cfg_path)
     load_env(cfg_path.parent / ".env")
+    if args.command == "convert":
+        if cfg_path.suffix.lower() == ".py":
+            raise SystemExit("convert needs a .json file: python sftp_load.py convert --config config.json")
+        return cmd_convert(cfg, cfg_path, args)
     if args.command == "scan":
         return cmd_scan(cfg, cfg_path, args)
     rn = Runner(cfg, cfg_path, args)
