@@ -104,6 +104,7 @@ TOP_N_ERRORS = 10                     # rows in "Top errors"      (0 = all)
 TOP_N_LEADERBOARD = 10                # rows in "Leaderboard"     (0 = all)
 TIME_BREAKDOWN_ROWS = 10              # components in "Where the time went"
 PAGE_SIZE = 25                        # jobs per page             (0 = all)
+FAIL_PAGE_SIZE = 10                   # rows per page in "Failure spotlight" (0 = all)
 DEFAULT_SORT_COL = 'total'            # file | status | total | sender | receiver | created | flags
 DEFAULT_SORT_DESC = True
 LEADERBOARD_GROUP = 'component'       # component | sender | receiver
@@ -339,7 +340,7 @@ def generate_report(records, fetch_errors, source_name, out_dir=OUTPUT_DIR):
         'job': JOB_LATENCY_THRESHOLD_SEC, 'comp': COMPONENT_THRESHOLDS,
         'key': KEY_COMPONENTS, 'failed': FAILED_STATUSES,
         'topN': TOP_N_ERRORS, 'lbN': TOP_N_LEADERBOARD, 'timeRows': TIME_BREAKDOWN_ROWS,
-        'pageSize': PAGE_SIZE, 'sortCol': DEFAULT_SORT_COL,
+        'pageSize': PAGE_SIZE, 'failPageSize': FAIL_PAGE_SIZE, 'sortCol': DEFAULT_SORT_COL,
         'sortDir': -1 if DEFAULT_SORT_DESC else 1, 'lbGroup': LEADERBOARD_GROUP,
         'chipLimit': ANALYSIS_CHIP_LIMIT, 'errLen': ERROR_TEXT_LEN,
         'stepErrLen': STEP_ERROR_TEXT_LEN, 'panels': SHOW_PANELS, 'cols': SHOW_COLUMNS,
@@ -614,6 +615,7 @@ function withCur(list,cur,lab){
 const S = {
   quick:'all', status:'', sender:'', receiver:'', comp:'', text:'', minTotal:0, errKey:'', only:'',
   sortCol:CFG.sortCol, sortDir:CFG.sortDir, page:0, pageSize:CFG.pageSize,
+  failPage:0, failPageSize:CFG.failPageSize, failSig:'',
   topN:CFG.topN, lbN:CFG.lbN, errSort:'count',
   lbGroup:CFG.lbGroup, lbKey:'', lbDir:-1,
   hidden:(function(){ const h={}; Object.keys(CFG.panels).forEach(k=>{ h[k]=!CFG.panels[k]; }); return h; })(),
@@ -856,15 +858,24 @@ function renderTimeline(){
 
 function renderFail(){
   const F=filtered().filter(j=>j.failed);
-  let h=panelHead('Failure spotlight');
-  if(!F.length){ $('p-fail').innerHTML=h+'<div class="empty">No failed jobs in the current view.</div>'; return; }
+  const sig=F.map(j=>j.i).join(',');
+  if(sig!==S.failSig){ S.failSig=sig; S.failPage=0; }
+  const n=F.length;
+  const ps=S.failPageSize>0?S.failPageSize:(n||1);
+  const pages=Math.max(1,Math.ceil(n/ps));
+  if(S.failPage>=pages) S.failPage=pages-1; if(S.failPage<0) S.failPage=0;
+  const psOpts=withCur([[5,'5 / page'],[10,'10 / page'],[25,'25 / page'],[50,'50 / page'],[0,'All']],S.failPageSize,v=>v+' / page');
+  let h=panelHead('Failure spotlight ('+n+')','<select data-sel="failPageSize">'+options(psOpts,S.failPageSize)+'</select>');
+  if(!n){ $('p-fail').innerHTML=h+'<div class="empty">No failed jobs in the current view.</div>'; return; }
+  const slice=F.slice(S.failPage*ps,(S.failPage+1)*ps);
   h+='<div class="wrap"><table><thead><tr><th>Job</th><th>Route</th><th class="num">Total</th><th>Failing step</th><th>Error</th></tr></thead><tbody>';
-  h+=F.map(j=>{
+  h+=slice.map(j=>{
     let si=j.steps.findIndex(s=>s.err);
     const s=si>=0?j.steps[si]:null;
     return '<tr class="clk" data-act="pick" data-v="'+j.i+'"><td><div class="fn" title="'+esc(j.file)+'">'+esc(j.file)+'</div></td><td>'+esc(j.sender)+' \u2192 '+esc(j.receiver)+'</td><td class="num">'+f1(j.total)+'s</td><td>'+(s?'S'+(si+1)+' '+esc(s.n):'-')+'</td><td class="red" title="'+esc(s?s.e:'')+'">'+esc(s?short(s.e,CFG.errLen):'No step error recorded')+'</td></tr>';
   }).join('');
   h+='</tbody></table></div>';
+  h+='<div class="pager"><span>Showing '+(S.failPage*ps+1)+'\u2013'+Math.min(n,(S.failPage+1)*ps)+' of '+n+'</span><span class="noprint"><button class="btn" data-act="failpage" data-v="-1"'+(S.failPage<=0?' disabled':'')+'>Prev</button> Page '+(S.failPage+1)+' of '+pages+' <button class="btn" data-act="failpage" data-v="1"'+(S.failPage>=pages-1?' disabled':'')+'>Next</button></span></div>';
   $('p-fail').innerHTML=h;
 }
 
@@ -970,6 +981,7 @@ function act(a,v){
     case 'lbsort': if(S.lbKey===v) S.lbDir*=-1; else { S.lbKey=v; S.lbDir=(v==='name')?1:-1; } break;
     case 'pick': { const j=DATA.jobs[+v]; S.only=j.id; S.page=0; break; }
     case 'page': S.page+=(+v); break;
+    case 'failpage': S.failPage+=(+v); break;
     case 'clear': resetFilters(); break;
     case 'rm': {
       const map={quick:()=>S.quick='all',status:()=>S.status='',sender:()=>S.sender='',receiver:()=>S.receiver='',comp:()=>S.comp='',err:()=>S.errKey='',only:()=>S.only='',text:()=>S.text='',min:()=>S.minTotal=0};
@@ -987,10 +999,11 @@ document.addEventListener('click',e=>{
 document.addEventListener('change',e=>{
   const t=e.target, d=t.dataset||{};
   if(d.sel){
-    const num=['topN','lbN','pageSize'].indexOf(d.sel)>=0;
+    const num=['topN','lbN','pageSize','failPageSize'].indexOf(d.sel)>=0;
     S[d.sel]=num?+t.value:t.value;
     if(d.sel==='lbGroup'){ S.lbKey=''; }
     if(d.sel==='pageSize') S.page=0;
+    if(d.sel==='failPageSize') S.failPage=0;
     renderAll();
   } else if(d.panel){ S.hidden[d.panel]=!t.checked; renderAll(); }
   else if(d.col){ S.cols[d.col]=t.checked; renderAll(); }
