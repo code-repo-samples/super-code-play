@@ -44,6 +44,7 @@ REPORT_PREFIX = 'Spice_Report'        # -> Spice_Report_<timestamp>.html
 EXCEL_PREFIX = 'Spice_Data'           # -> Spice_Data_<timestamp>.xlsx
 REPORT_TITLE = 'SPICE Analytical Reporting'
 AUTO_OPEN_REPORT = True               # command line --no-open always wins
+SAVE_PARTIAL_ON_INTERRUPT = True      # Ctrl+C -> still build a report from the jobs finished so far
 
 # ---- API / fetching -------------------------------------------------------
 URL = 'https://qa.nonprod.int.coke.com/graphql'
@@ -324,7 +325,7 @@ def build_record(job_id, job):
 # --------------------------------------------------------------------------
 # REPORT
 # --------------------------------------------------------------------------
-def generate_report(records, fetch_errors, source_name, out_dir=OUTPUT_DIR):
+def generate_report(records, fetch_errors, source_name, out_dir=OUTPUT_DIR, partial=None):
     ts_str = datetime.now().strftime('%Y%m%d_%H%M%S')
     payload = {
         'jobs': records,
@@ -333,6 +334,7 @@ def generate_report(records, fetch_errors, source_name, out_dir=OUTPUT_DIR):
             'generated': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'source': source_name,
             'excel_name': f'{EXCEL_PREFIX}_{ts_str}',
+            'interrupted': partial,
         },
     }
     config = {
@@ -356,9 +358,12 @@ def generate_report(records, fetch_errors, source_name, out_dir=OUTPUT_DIR):
             .replace('__CONFIG__', js(config)).replace('__DATA__', js(payload)))
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    path = out / f'{REPORT_PREFIX}_{ts_str}.html'
+    path = out / f'{REPORT_PREFIX}_{ts_str}{"_PARTIAL" if partial else ""}.html'
     path.write_text(page, encoding='utf-8')
     return path
+
+
+_INTERRUPTED = False
 
 
 def main(argv):
@@ -379,37 +384,68 @@ def main(argv):
         return 1
     headers = {'authorization': f'Bearer {token}', 'content-type': 'application/json'}
 
-    print(f'Analyzing {len(ids)} jobs from {path} ...')
+    global _INTERRUPTED
+    print(f'Analyzing {len(ids)} jobs from {path} ...  (Ctrl+C = stop and report what is done so far)')
     order = {jid: i for i, jid in enumerate(ids)}
-    records, errors = [], []
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
-        futures = {ex.submit(fetch_job_data, jid, headers): jid for jid in ids}
-        for n, fut in enumerate(as_completed(futures), 1):
-            jid = futures[fut]
+    records, errors, seen = [], [], set()
+    interrupted = False
+
+    ex = ThreadPoolExecutor(max_workers=MAX_WORKERS)
+    futures = {ex.submit(fetch_job_data, jid, headers): jid for jid in ids}
+
+    def handle(fut):
+        jid = futures[fut]
+        seen.add(jid)
+        try:
             job, err = fut.result()
-            if job is None:
-                errors.append({'id': jid, 'reason': err})
-            else:
-                try:
-                    records.append(build_record(jid, job))
-                except Exception as e:
-                    errors.append({'id': jid, 'reason': f'Could not parse job: {type(e).__name__}: {e}'[:200]})
+        except Exception as e:
+            job, err = None, f'{type(e).__name__}: {e}'[:200]
+        if job is None:
+            errors.append({'id': jid, 'reason': err})
+            return
+        try:
+            records.append(build_record(jid, job))
+        except Exception as e:
+            errors.append({'id': jid, 'reason': f'Could not parse job: {type(e).__name__}: {e}'[:200]})
+
+    try:
+        for n, fut in enumerate(as_completed(futures), 1):
+            handle(fut)
             print(f'\r  {n}/{len(ids)} done', end='', flush=True)
-    print()
+        ex.shutdown(wait=True)
+    except KeyboardInterrupt:
+        interrupted = _INTERRUPTED = True
+        for f in futures:                       # drop jobs that have not started
+            f.cancel()
+        ex.shutdown(wait=False)
+        for f in list(futures):                 # keep anything that finished but was not read yet
+            if futures[f] not in seen and f.done() and not f.cancelled():
+                handle(f)
+        print(f'\n  Stopped by user: {len(seen)} of {len(ids)} jobs fetched.')
+    else:
+        print()
+
     records.sort(key=lambda r: order[r['id']])
     errors.sort(key=lambda r: order[r['id']])
 
+    if interrupted and not SAVE_PARTIAL_ON_INTERRUPT:
+        print('SAVE_PARTIAL_ON_INTERRUPT is False - no report written.')
+        return 130
     if not records:
-        print('No jobs could be retrieved. First problems seen:')
-        for e in errors[:5]:
-            print(f"  {e['id'][:60]}...  {e['reason']}")
+        if interrupted:
+            print('No job finished before Ctrl+C, so there is nothing to report.')
+        else:
+            print('No jobs could be retrieved. First problems seen:')
+            for e in errors[:5]:
+                print(f"  {e['id'][:60]}...  {e['reason']}")
         return 1
+    partial = {'processed': len(seen), 'total': len(ids)} if interrupted else None
 
-    report = generate_report(records, errors, os.path.basename(path))
+    report = generate_report(records, errors, os.path.basename(path), partial=partial)
     failed = sum(1 for r in records if r['status'] in FAILED_STATUSES)
     long_jobs = sum(1 for r in records if r['total'] > JOB_LATENCY_THRESHOLD_SEC)
     longest = max(records, key=lambda r: r['total'])
-    print(f'Done. {len(records)} jobs analyzed, {failed} failed, {len(errors)} could not be fetched.')
+    print(f"{'PARTIAL report' if interrupted else 'Done.'} {len(records)} jobs analyzed, {failed} failed, {len(errors)} could not be fetched.")
     print(f'  Long jobs (over {JOB_LATENCY_THRESHOLD_SEC:g}s): {long_jobs}')
     print(f"  Longest job: {longest['total']:.2f}s  {longest['file']}")
     print(f'Report: {report.resolve()}')
@@ -1069,6 +1105,10 @@ if(DATA.fetch_errors.length){
   $('banner').innerHTML='<div class="banner"><b>'+DATA.fetch_errors.length+' job(s) could not be retrieved</b> and are not counted below.<details><summary>Show details</summary>'
     +DATA.fetch_errors.map(e=>'<div style="margin-top:4px;word-break:break-all"><code>'+esc(e.id)+'</code><br><span class="red">'+esc(e.reason)+'</span></div>').join('')+'</details></div>';
 }
+if(DATA.meta.interrupted){
+  const m=DATA.meta.interrupted;
+  $('banner').innerHTML+='<div class="banner"><b>Partial report: the run was stopped with Ctrl+C.</b> '+m.processed+' of '+m.total+' jobs were fetched; '+(m.total-m.processed)+' were not fetched and are not counted below.</div>';
+}
 
 enrich();
 renderAll();
@@ -1080,4 +1120,13 @@ renderAll();
 
 
 if __name__ == '__main__':
-    sys.exit(main(sys.argv))
+    try:
+        rc = main(sys.argv)
+    except KeyboardInterrupt:
+        print('\nCancelled.')
+        rc = 130
+    if _INTERRUPTED:
+        # do not wait for requests that were still in flight when Ctrl+C was pressed
+        sys.stdout.flush()
+        os._exit(rc)
+    sys.exit(rc)
