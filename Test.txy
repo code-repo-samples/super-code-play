@@ -100,7 +100,13 @@ ERROR_TEXT_LEN = 120                  # error text length in tables
 STEP_ERROR_TEXT_LEN = 60              # error text length inside a step column
 LAST_MSG_MAX_LEN = 300                # last log message kept per step
 
-SHOW_PANELS = {'time': True, 'err': True, 'lb': True, 'tl': True, 'fail': True}
+# These two panels sit at the BOTTOM of the report, below the jobs table.
+# Off by default; set True to show them (or tick them on in the report's "Show" bar).
+SHOW_TIME_BREAKDOWN = False           # "Where the time went"
+SHOW_TIMELINE = False                 # "Timeline: job duration by creation time"
+
+SHOW_PANELS = {'err': True, 'lb': True, 'fail': True,
+               'time': SHOW_TIME_BREAKDOWN, 'tl': SHOW_TIMELINE}
 SHOW_COLUMNS = {'id': True, 'sender': True, 'receiver': True, 'created': True,
                 'steps': True, 'bar': True, 'analysis': True}
 
@@ -361,7 +367,11 @@ def main(argv):
 
     report = generate_report(records, errors, os.path.basename(path))
     failed = sum(1 for r in records if r['status'] in FAILED_STATUSES)
+    long_jobs = sum(1 for r in records if r['total'] > JOB_LATENCY_THRESHOLD_SEC)
+    longest = max(records, key=lambda r: r['total'])
     print(f'Done. {len(records)} jobs analyzed, {failed} failed, {len(errors)} could not be fetched.')
+    print(f'  Long jobs (over {JOB_LATENCY_THRESHOLD_SEC:g}s): {long_jobs}')
+    print(f"  Longest job: {longest['total']:.2f}s  {longest['file']}")
     print(f'Report: {report.resolve()}')
     if AUTO_OPEN_REPORT and '--no-open' not in flags:
         try:
@@ -517,14 +527,17 @@ details summary{cursor:pointer}
   </section>
 
   <div class="grid">
-    <section class="panel" id="p-time"></section>
     <section class="panel" id="p-err"></section>
     <section class="panel" id="p-lb"></section>
-    <section class="panel" id="p-tl"></section>
     <section class="panel span2" id="p-fail"></section>
   </div>
 
   <section class="panel" id="p-jobs"></section>
+
+  <div class="grid" style="margin-top:12px">
+    <section class="panel" id="p-time"></section>
+    <section class="panel" id="p-tl"></section>
+  </div>
 
   <details class="legend" style="margin-top:12px"><summary>Legend</summary>
     <div class="legend">
@@ -669,8 +682,9 @@ function renderTime(){
   if(!arr.length){ $('p-time').innerHTML=h+'<div class="empty">No steps in the current view.</div>'; return; }
   const tot=(W+Pr)||1;
   const topW=arr.slice().sort((a,b)=>b.w-a.w)[0];
-  h+='<p class="note">Across '+F.length+' jobs, waiting is <b>'+pct(W/tot)+'</b> of all step time ('+hms(W)+' wait vs '+hms(Pr)+' processing). '
-    +(W>0?'Largest wait: <b>'+esc(topW.n)+'</b> ('+pct(topW.w/(W||1))+' of all wait).':'')+'</p>';
+  h+='<p class="note">Summed over the '+F.length+' jobs in view: <b>'+hms(W)+'</b> waiting between steps vs <b>'+hms(Pr)+'</b> processing inside steps. '
+    +(W>0?'Most waiting happens before <b>'+esc(topW.n)+'</b> ('+pct(topW.w/(W||1))+' of all wait). ':'')
+    +'Wait = gap before a step starts; Process = time inside the step.</p>';
   const rows=arr.sort((a,b)=>(b.w+b.p)-(a.w+a.p)).slice(0,CFG.timeRows>0?CFG.timeRows:undefined);
   const max=rows[0].w+rows[0].p||1;
   h+=rows.map(r=>{
