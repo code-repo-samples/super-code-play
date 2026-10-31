@@ -77,11 +77,23 @@ ERROR_LOG_TYPES = ['ERROR']           # businessLog "type" values treated as err
 STRICT_ERROR_WORDS = ['No more retries. Marking job as FAILED.', 'RestError', 'no such file']
 SYSTEM_FAILURE_MESSAGE = 'System reported failure.'   # used when a step failed with no message
 
+# When the JOB status is in FAILED_STATUSES, the error is always extracted, even
+# if it matches none of the rules above. If a failed step (or, when no step is
+# marked failed, the last step) has no real error text, its logs are searched:
+#   1) first log whose type is in FALLBACK_ERROR_LOG_TYPES, else
+#   2) first log whose message contains any word in FALLBACK_ERROR_WORDS (case-insensitive).
+FAILED_JOB_FALLBACK = True
+FALLBACK_ERROR_LOG_TYPES = ['WARN', 'WARNING', 'FATAL', 'SEVERE', 'CRITICAL']
+FALLBACK_ERROR_WORDS = ['failed', 'failure', 'error', 'exception', 'timeout', 'timed out',
+                        'refused', 'denied', 'reset', 'unable', 'invalid', 'not found',
+                        'cannot', 'could not', 'rejected']
+
 # Error grouping: patterns applied in order (case-insensitive); each match is
 # replaced by the placeholder so the same error with different ids groups together.
 ERROR_GROUPING_PATTERNS = [
     (r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '<id>'),
     (r'\S+\.(?:xml|dat|edi|csv|txt|json|ont|zip|gz|pdf)\b', '<file>'),
+    (r'\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b', '<ip>'),
     (r'\b[0-9a-fA-F]{16,}\b', '<hex>'),
     (r'\d{4,}', '<n>'),
 ]
@@ -192,6 +204,21 @@ def error_key(msg):
     return _RE_WS.sub(' ', k).strip()[:ERROR_KEY_MAX_LEN]
 
 
+def fallback_error_message(pairs):
+    """pairs = [(log_type, message), ...] of one step. Returns the best error-looking
+    message using the FALLBACK_* settings, or None if nothing looks like an error."""
+    types = {t.upper() for t in FALLBACK_ERROR_LOG_TYPES}
+    words = [w.lower() for w in FALLBACK_ERROR_WORDS]
+    for typ, msg in pairs:
+        if msg and typ.upper() in types:
+            return msg
+    for typ, msg in pairs:
+        low = msg.lower()
+        if msg and any(w in low for w in words):
+            return msg
+    return None
+
+
 def get_steps(job):
     """Merge consecutive log nodes of the same component into one step and
     compute wait (gap since previous step ended) and process (own duration)."""
@@ -219,6 +246,7 @@ def get_steps(job):
             'failed': bool(node.get('failed')) or err_msg is not None,
             'err_msg': err_msg,
             'last_msg': str(logs[-1].get('message') or '-') if logs else '-',
+            'pairs': [(str(l.get('type') or ''), str(l.get('message') or '')) for l in logs],
         })
 
     merged = []
@@ -231,10 +259,21 @@ def get_steps(job):
                 if not curr['err_msg']:
                     curr['err_msg'] = nxt['err_msg']
                 curr['last_msg'] = nxt['last_msg']
+                curr['pairs'] = curr['pairs'] + nxt['pairs']
             else:
                 merged.append(curr)
                 curr = dict(nxt)
         merged.append(curr)
+
+    if FAILED_JOB_FALLBACK and merged and job.get('status') in FAILED_STATUSES:
+        generic = lambda q: (not q['err_msg']) or q['err_msg'] == SYSTEM_FAILURE_MESSAGE
+        targets = [q for q in merged if q['failed'] and generic(q)]
+        if not any(q['failed'] for q in merged):
+            targets = [merged[-1]]
+        for q in targets:
+            found = fallback_error_message(q['pairs'])
+            if found:
+                q['err_msg'], q['failed'] = found, True
 
     steps, prev_end = [], job['creationTimestamp']
     for p in merged:
