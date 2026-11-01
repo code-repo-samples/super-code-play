@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AWS vs GCP API Comparison Report (Sample v2)</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+--bg:#f4f5f8;--card:#fff;--tx:#14181f;--mut:#5d6675;--bd:#dfe3ea;--hd:#0f1420;--ok:#117a3d;--okb:#e0f4e8;--wn:#8a5a00;--wnb:#fff1d6;--fl:#b3261e;--flb:#fde4e2;--ac:#2456d6;--code:#eef1f6;--new:#7a3cff;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#101319;--card:#181c24;--tx:#e8ebf0;--mut:#98a1b0;--bd:#2a303b;--hd:#05070b;--ok:#5fd18a;--okb:#14301f;--wn:#f0b84a;--wnb:#3a2c0c;--fl:#ff8a80;--flb:#40181a;--ac:#8aa8ff;--code:#222733;--new:#b79cff;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#101319;--card:#181c24;--tx:#e8ebf0;--mut:#98a1b0;--bd:#2a303b;--hd:#05070b;--ok:#5fd18a;--okb:#14301f;--wn:#f0b84a;--wnb:#3a2c0c;--fl:#ff8a80;--flb:#40181a;--ac:#8aa8ff;--code:#222733;--new:#b79cff;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:13px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:14px}
+h1{font-size:20px;margin:4px 0 10px}h3{font-size:13px;margin:14px 0 6px;color:var(--mut)}
+.tiles{display:flex;flex-wrap:wrap;gap:8px}
+.t{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:8px 12px;min-width:120px}
+.t .k{font-size:11px;color:var(--mut)}.t .v{font-size:20px;font-weight:700}
+.t.n{border-color:var(--new)}
+.ok{color:var(--ok)}.wn{color:var(--wn)}.fl{color:var(--fl)}
+.badge{background:var(--new);color:#fff;border-radius:4px;font-size:9px;padding:1px 4px;margin-left:4px;vertical-align:middle}
+.banner{background:var(--flb);color:var(--fl);border-radius:10px;padding:10px 14px;margin:10px 0;font-weight:600}
+.bar{display:flex;align-items:center;gap:8px;margin:3px 0;font-size:12px}
+.bar span:first-child{width:170px;flex:none}.bar i{display:block;height:9px;border-radius:5px}
+.ctl{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0;align-items:center}
+input,select,button{background:var(--card);color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:7px 10px;font-size:13px}
+button.p{background:var(--ac);color:#fff;border-color:var(--ac)}
+label{display:flex;align-items:center;gap:4px;white-space:nowrap}
+.wrap{overflow:auto;border-radius:10px;border:1px solid var(--bd);max-height:70vh}
+table{border-collapse:collapse;min-width:2300px;width:100%;background:var(--card)}
+th{position:sticky;top:0;background:var(--hd);color:#fff;text-align:left;padding:9px 8px;white-space:nowrap;z-index:2}
+td{padding:8px;border-bottom:1px solid var(--bd);vertical-align:top}
+.pill{border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;white-space:nowrap;display:inline-block}
+.PASS,.MATCH,.SCHEMA_MATCHED,.s2{background:var(--okb);color:var(--ok)}
+.WARN{background:var(--wnb);color:var(--wn)}
+.FAIL,.MISMATCH,.SCHEMA_DIFFERENT,.s4{background:var(--flb);color:var(--fl)}
+.tg{display:inline-block;border-radius:4px;padding:1px 6px;margin:1px;font-size:11px;background:var(--code)}
+.tg.x{color:var(--wn)}.tg.m,.tg.t{color:var(--fl)}
+code,pre{background:var(--code);border-radius:6px;font-size:11px}
+pre{margin:4px 0 0;padding:6px;max-width:300px;white-space:pre-wrap;word-break:break-all}
+details summary{cursor:pointer;color:var(--ac)}
+.rem{max-width:320px}.ig{color:var(--mut);font-size:11px}
+.h{display:none}
+</style>
+</head>
+<body>
+<h1>AWS vs GCP API Comparison Report <span class="badge">SAMPLE v3</span></h1>
+<div class="sub" style="color:var(--mut)"><b>Run:</b> 01 Nov 2026 13:43 · mode=compare · flags: --classify --latency --validate-config · AWS: *-apig-pri.stg.codes.coke.com/v2 · GCP: ui-gcp.alpha.codes.coke.com/api<br>Original columns are unchanged. New columns (purple NEW) are appended at the end. Numbers are illustrative.</div><div class="banner" style="background:var(--wnb);color:var(--wn)">Startup warnings (--validate-config):<br>• GCP_ENV: codes-mgmt-service, config-mgmt-service, audit-mgmt-service and CODE_VALIDATE_SERVICE_URL use localhost<br>• TEST_AUDIT_MGMT_SERVICE is False, so Audit-Mgmt is not tested<br>• AWS_ENV USER_ID is blank</div>
+<div class="banner">OVERALL: NOT READY · 3 blockers · 19 warnings. Legend: READY (no fails) / READY WITH WARNINGS (no blockers) / NOT READY (any blocker). Extra fields and error-text differences count as warnings or pass.</div>
+
+<div class="tiles">
+<div class="t"><div class="k">Total APIs</div><div class="v">121</div></div>
+<div class="t"><div class="k">Matched</div><div class="v">99</div></div>
+<div class="t"><div class="k">Mismatched</div><div class="v">22</div></div>
+<div class="t"><div class="k">AWS Pass %</div><div class="v">84.3%</div></div>
+<div class="t"><div class="k">GCP Pass %</div><div class="v">90.1%</div></div>
+<div class="t"><div class="k">Schema Match %</div><div class="v">51.2%</div></div>
+<div class="t n"><div class="k">PASS<span class="badge">NEW</span></div><div class="v ok">84</div></div>
+<div class="t n"><div class="k">PASS + WARN<span class="badge">NEW</span></div><div class="v wn">19</div></div>
+<div class="t n"><div class="k">FAIL<span class="badge">NEW</span></div><div class="v fl">18</div></div>
+<div class="t n"><div class="k">Latency p50 AWS → GCP<span class="badge">NEW</span></div><div class="v">2.2s → 1.9s</div></div>
+<div class="t n"><div class="k">Latency p95 AWS → GCP<span class="badge">NEW</span></div><div class="v">3.8s → 4.6s</div></div>
+</div>
+
+<h3>Domain breakdown (as today) with pass / warn / fail <span class="badge">NEW</span></h3>
+<div class="tiles" id="dom"></div>
+
+<h3>Root cause summary <span class="badge">NEW</span></h3>
+<div class="t" id="rc" style="max-width:520px"></div>
+
+<div class="ctl">
+<input id="q" placeholder="Search API" oninput="draw()">
+<select id="fd" onchange="draw()"><option value="">All Domains</option></select>
+<select id="fv" onchange="draw()"><option value="">All Verdicts</option><option>FAIL</option><option>WARN</option><option>PASS</option></select>
+<select id="ft" onchange="draw()"><option value="">All Test Types</option><option>positive</option><option>negative</option></select>
+<select id="fs" onchange="draw()"><option value="">All GCP Status Codes</option><option>200</option><option>404</option><option>ERR</option></select>
+<select id="fc" onchange="draw()"><option value="">All Root Causes</option></select>
+</div>
+<div class="ctl">
+<label><input type="checkbox" id="c_aws" checked onchange="draw()">AWS Response</label>
+<label><input type="checkbox" id="c_gcp" checked onchange="draw()">GCP Response</label>
+<label><input type="checkbox" id="c_st" checked onchange="draw()">Structures</label>
+<label><input type="checkbox" id="c_rq" checked onchange="draw()">Request</label>
+<label><input type="checkbox" id="c_ee" onchange="draw()">Expected Errors</label>
+<label><input type="checkbox" id="c_fo" onchange="draw()">Failures only<span class="badge">NEW</span></label>
+<button class="p" onclick="exp()">Export CSV (filtered)</button>
+</div>
+
+<div class="wrap"><table>
+<thead><tr id="hd"></tr></thead><tbody id="tb"></tbody></table></div>
+
+<script>
+var R=[
+{d:"External API V7 - Realtime Code Generation",a:"Generate Realtime Code",m:"POST",t:"positive",ta:2093,tg:41,as:403,gs:404,rm:"MISMATCH",sm:"SCHEMA_DIFFERENT",v:"FAIL",sv:"Blocker",c:"Routing / config",df:[["x","path"],["x","status"],["x","error"],["m","Message"]],rem:"Status AWS=403 GCP=404. GCP route /codegen/realtime/pincodes not found. Check base URL and context path.",ar:'{"Message":"User is not authorized to access this resource with an explicit deny in an identity-based policy"}',gr:'{"status":404,"error":"Not Found","path":"/codegen/realtime/pincodes"}',as_:"{Message}",gs_:"{timestamp,status,error,path}",rq:'POST .../pcservices/rest/v7/pincodes?organizationId=...\nAuthorization: ******* (masked)'},
+{d:"MgmtApi : ConfigMgmt",a:"Get Config",m:"GET",t:"positive",ta:1480,tg:0,as:200,gs:"ERR",rm:"MISMATCH",sm:"SCHEMA_DIFFERENT",v:"FAIL",sv:"Blocker",c:"Routing / config",df:[["m","all fields"]],rem:"Connection refused. GCP_ENV config-mgmt-service points to localhost:8085.",ar:'{"configs":[...]}',gr:"(no response)",as_:"{configs[]}",gs_:"n/a",rq:"GET http://localhost:8085/configs\nAuthorization: ******* (masked)"},
+{d:"External API V7 - Viral / Realtime",a:"Audit Pincode Redeem",m:"PUT",t:"positive",ta:3792,tg:3410,as:200,gs:200,rm:"MATCH",sm:"SCHEMA_DIFFERENT",v:"FAIL",sv:"Major",c:"Breaking schema",df:[["t","lot.activateDate string→object"],["x","lot.activateDateTimezone"],["x","programStartTimezone"]],rem:"Same status. Type mismatch at lot.activateDate will break strict consumers.",ig:"transactionId, timestamp",ar:'{"lot":{"activateDate":"2026-11-01"}}',gr:'{"lot":{"activateDate":{...},"activateDateTimezone":"UTC"}}',as_:"lot.activateDate:string",gs_:"lot.activateDate:object",rq:"PUT .../pincodes/PROMO...json?programId=...\nAuthorization: ******* (masked)"},
+{d:"External API V7 - Viral / Realtime",a:"Audit Pincode Status",m:"GET",t:"positive",ta:2267,tg:2190,as:200,gs:200,rm:"MATCH",sm:"SCHEMA_DIFFERENT",v:"WARN",sv:"Minor",c:"Extra fields in GCP",df:[["x","programStartTimezone"],["x","programEndTimezone"]],rem:"Additive only. Safe unless clients validate strictly.",ig:"timestamp",ar:"{...}",gr:"{... + 2 fields}",as_:"n fields",gs_:"n+2 fields",rq:"GET .../pincodes/PROMO...json\nAuthorization: ******* (masked)"},
+{d:"External API V7 - Viral / Realtime",a:"Pincode Unredeem",m:"DELETE",t:"positive",ta:2328,tg:2250,as:200,gs:200,rm:"MATCH",sm:"SCHEMA_DIFFERENT",v:"WARN",sv:"Minor",c:"Extra fields in GCP",df:[["x","lot.inactivateDateTimezone"]],rem:"Additive only.",ig:"transactionId",ar:"{...}",gr:"{... + 1 field}",as_:"n fields",gs_:"n+1 fields",rq:"DELETE .../pincodes/PROMO...json\nAuthorization: ******* (masked)"},
+{d:"External API V7 - Viral / Realtime",a:"Viral Redeem 1",m:"PUT",t:"positive",ta:2573,tg:2410,as:200,gs:200,rm:"MATCH",sm:"SCHEMA_MATCHED",v:"PASS",sv:"None",c:"None",df:[],rem:"Responses aligned.",ig:"transactionId, timestamp",ar:"{...}",gr:"{...}",as_:"same",gs_:"same",rq:"PUT .../viralcodes/XMAS2025.json\nAuthorization: ******* (masked)"},
+{d:"MgmtApi : ReleaseMgmt",a:"List Releases",m:"GET",t:"positive",ta:820,tg:2790,as:200,gs:200,rm:"MATCH",sm:"SCHEMA_MATCHED",v:"WARN",sv:"Major",c:"Latency regression",df:[],rem:"Body matches. GCP is 3.4x slower (flag: over +50% and over +500 ms).",ar:"{...}",gr:"{...}",as_:"same",gs_:"same",rq:"GET .../programs/:programId/releases"},
+{d:"Negative : NegativeTests",a:"Create Program Missing Name",m:"POST",t:"negative",ta:310,tg:280,as:400,gs:400,rm:"MISMATCH",sm:"SCHEMA_DIFFERENT",v:"PASS",sv:"None",c:"Error text only",df:[],rem:"Expected error. Status and category match. Message wording ignored for negative tests.",ig:"message, error text",ar:'{"message":"name is required"}',gr:'{"error":"Bad Request"}',as_:"{message}",gs_:"{error}",rq:'POST .../programs\nbody: {"programSummary":{"description":"missing name"}}'},
+{d:"Negative : NegativeTests",a:"Get User Invalid UUID Format",m:"GET",t:"negative",ta:290,tg:260,as:200,gs:200,rm:"MATCH",sm:"SCHEMA_MATCHED",v:"WARN",sv:"Minor",c:"Test expectation wrong",df:[],rem:"routes.py expects 200 for an invalid UUID. Likely should be 400/404. Fix the test.",ar:"{...}",gr:"{...}",as_:"same",gs_:"same",rq:"GET .../users/@@@@"}
+];
+var H=["Domain","API","Method","Type","Response Time","Response Match","AWS Status","GCP Status","Schema Match","Remarks","AWS Response|aws","GCP Response|gcp","Structures|st","Request|rq","AWS ms|n","GCP ms|n","Δ Latency|n","Verdict|n","Severity|n","Root Cause|n","Field Diff|n","Header Diff|n"];
+function opt(id,arr){var s=document.getElementById(id);arr.forEach(function(x){var o=document.createElement("option");o.textContent=x;s.appendChild(o)})}
+function uniq(k){return R.map(function(r){return r[k]}).filter(function(x,i,a){return a.indexOf(x)==i})}
+opt("fd",uniq("d"));opt("fc",uniq("c").filter(function(x){return x!="None"}));
+var rc={};R.forEach(function(r){if(r.c!="None"){rc[r.c]=(rc[r.c]||0)+1}});
+document.getElementById("rc").innerHTML=Object.keys(rc).map(function(k){return '<div class="bar"><span>'+k+'</span><i style="width:'+rc[k]*28+'px;background:var(--'+(/Routing|Breaking/.test(k)?'fl':/text/.test(k)?'ok':'wn')+')"></i><span>'+rc[k]+'</span></div>'}).join("");
+var dm={};R.forEach(function(r){dm[r.d]=dm[r.d]||{PASS:0,WARN:0,FAIL:0};dm[r.d][r.v]++});
+document.getElementById("dom").innerHTML=Object.keys(dm).map(function(k){var x=dm[k];return '<div class="t"><div class="k">'+k+'</div><div class="v"><span class="ok">'+x.PASS+'</span> / <span class="wn">'+x.WARN+'</span> / <span class="fl">'+x.FAIL+'</span></div></div>'}).join("");
+function dl(a,g){if(!a||!g)return"n/a";var p=Math.round((g-a)/a*100);return(p>0?"+":"")+p+"%"}
+function vis(){return R.filter(function(r){var q=document.getElementById("q").value.toLowerCase();
+ return(!q||r.a.toLowerCase().indexOf(q)>-1)&&(!fd.value||r.d==fd.value)&&(!fv.value||r.v==fv.value)&&(!ft.value||r.t==ft.value)&&(!fs.value||String(r.gs)==fs.value)&&(!fc.value||r.c==fc.value)&&(!c_fo.checked||r.v=="FAIL")&&(c_ee.checked||r.t!="negative"||r.v!="PASS")})}
+function draw(){
+ var on={aws:c_aws.checked,gcp:c_gcp.checked,st:c_st.checked,rq:c_rq.checked};
+ var cols=H.filter(function(h){var k=h.split("|")[1];return !(k in on)||on[k]});
+ hd.innerHTML=cols.map(function(h){var p=h.split("|");return "<th>"+p[0]+(p[1]=="n"?'<span class="badge">NEW</span>':"")+"</th>"}).join("");
+ tb.innerHTML=vis().map(function(r){
+  var cell=[r.d,r.a,r.m,r.t,r.ta+" ms",r.tg+" ms",'<b class="'+(r.tg>r.ta*1.5&&r.tg-r.ta>500?'fl':'')+'">'+dl(r.ta,r.tg)+'</b>',
+   '<span class="pill '+r.rm+'">'+r.rm+'</span>','<span class="pill '+(r.as==200?'s2':'s4')+'">'+r.as+'</span>','<span class="pill '+(r.gs==200?'s2':'s4')+'">'+r.gs+'</span>',
+   '<span class="pill '+r.sm+'">'+r.sm.replace("_"," ")+'</span>','<span class="pill '+r.v+'">'+r.v+'</span>',r.sv,r.c,
+   r.df.map(function(x){return '<span class="tg '+x[0]+'">'+({x:"+ ",m:"− ",t:"⚠ "})[x[0]]+x[1]+'</span>'}).join("")||"—",
+   '<div class="rem">'+r.rem+(r.ig?'<div class="ig">Ignored: '+r.ig+'</div>':'')+'</div>'];
+  if(on.aws)cell.push('<details><summary>View AWS Response</summary><pre>'+r.ar+'</pre></details>');
+  if(on.gcp)cell.push('<details><summary>View GCP Response</summary><pre>'+r.gr+'</pre></details>');
+  if(on.st)cell.push('<details><summary>AWS Structure</summary><pre>'+r.as_+'</pre></details><details><summary>GCP Structure</summary><pre>'+r.gs_+'</pre></details>');
+  if(on.rq)cell.push('<details><summary>AWS Request</summary><pre>'+r.rq+'</pre></details>');
+  var det=cell.slice(16);
+  var hdf=r.a=="Generate Realtime Code"?'<span class="tg x">content-type: json vs problem+json</span>':"—";
+  cell=[cell[0],cell[1],cell[2],cell[3],cell[4],cell[7],cell[8],cell[9],cell[10],cell[15]].concat(det,[r.ta+" ms",r.tg+" ms",cell[6],cell[11],cell[12],cell[13],cell[14],hdf]);
+  return "<tr>"+cell.map(function(c){return "<td>"+c+"</td>"}).join("")+"</tr>"}).join("")}
+function exp(){var rows=vis().map(function(r){return[r.d,r.a,r.m,r.t,r.ta,r.tg,dl(r.ta,r.tg),r.as,r.gs,r.v,r.sv,r.c,r.rem].map(function(x){return '"'+String(x).replace(/"/g,'""')+'"'}).join(",")});
+ var csv="Domain,API,Method,Type,AWS ms,GCP ms,Delta,AWS,GCP,Verdict,Severity,Root cause,Remarks\n"+rows.join("\n");
+ try{navigator.clipboard.writeText(csv);alert("CSV copied to clipboard")}catch(e){alert("Export works in the local HTML file")}}
+draw();
+</script>
+</body>
+</html>
