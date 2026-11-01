@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>UI Automation Execution Report — Coke Codes Admin Portal</title>
+<style>
+:root{--bg:#f4f6f9;--card:#fff;--text:#1b2230;--mut:#6b7587;--bd:#e2e6ee;--g:#1f9d55;--r:#d64545;--a:#d9922b;--b:#2f6fed;--soft:#eef2f8;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1218;--card:#171b24;--text:#e7eaf0;--mut:#8f99ab;--bd:#272d3a;--g:#34c27a;--r:#f06464;--a:#f0b04d;--b:#6a9bff;--soft:#1e2430}}
+:root[data-theme="dark"]{--bg:#0f1218;--card:#171b24;--text:#e7eaf0;--mut:#8f99ab;--bd:#272d3a;--g:#34c27a;--r:#f06464;--a:#f0b04d;--b:#6a9bff;--soft:#1e2430}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+header{padding:22px 18px;border-bottom:1px solid var(--bd);background:var(--card)}
+h1{margin:0;font-size:20px}h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:26px 0 10px}
+.sub{color:var(--mut);font-size:12.5px;margin-top:4px}
+.badge{display:inline-block;background:var(--soft);border:1px solid var(--bd);border-radius:6px;padding:1px 8px;font-size:11px;color:var(--mut);margin-top:8px}
+main{max-width:1100px;margin:0 auto;padding:0 14px 40px}
+.grid{display:grid;gap:10px}.kpis{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px 16px}
+.n{font-size:26px;font-weight:800;line-height:1.1}.l{font-size:11px;color:var(--mut);text-transform:uppercase;margin-top:4px}
+.g{color:var(--g)}.r{color:var(--r)}.a{color:var(--a)}.b{color:var(--b)}
+.two{grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+.donut{width:130px;height:130px;border-radius:50%;margin:4px auto;display:flex;align-items:center;justify-content:center;position:relative}
+.donut:before{content:"";position:absolute;inset:16px;background:var(--card);border-radius:50%}
+.donut b{position:relative;font-size:22px}
+.bar{height:8px;border-radius:4px;background:var(--soft);display:flex;overflow:hidden}
+.bar i{display:block;height:100%}.bar .p{background:var(--g)}.bar .f{background:var(--r)}
+.row{margin:0 0 12px}.row .t{display:flex;justify-content:space-between;font-size:13px;margin-bottom:5px}
+.scroll{overflow-x:auto;border:1px solid var(--bd);border-radius:12px;background:var(--card)}
+table{border-collapse:collapse;width:100%;min-width:640px;font-size:12.5px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--bd);vertical-align:top}
+th{font-size:11px;text-transform:uppercase;color:var(--mut);background:var(--soft)}tr:last-child td{border-bottom:0}
+.pill{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.pill.pass{background:rgba(31,157,85,.14);color:var(--g)}.pill.fail{background:rgba(214,69,69,.14);color:var(--r)}
+.pill.pos{background:rgba(47,111,237,.13);color:var(--b)}.pill.neg{background:rgba(217,146,43,.16);color:var(--a)}
+.pill.hi{background:rgba(214,69,69,.14);color:var(--r)}.pill.med{background:rgba(217,146,43,.16);color:var(--a)}
+.dots{display:flex;gap:3px}.dots i{width:12px;height:12px;border-radius:3px;background:var(--g)}.dots i.x{background:var(--r)}
+code{background:var(--soft);padding:1px 5px;border-radius:4px;font-size:11.5px}
+ul{margin:6px 0 0;padding-left:18px}li{margin-bottom:4px}
+.note{color:var(--mut);font-size:12px;margin-top:24px}
+</style>
+</head>
+<body>
+<header>
+  <h1>UI Automation Execution Report — Coke Codes Admin Portal</h1>
+  <div class="sub">Run #52 · Sunday, 1 November 2026 · Triggered by nightly schedule · Branch <code>main</code></div>
+  <span class="badge">SAMPLE DATA — illustrative values to show report layout</span>
+</header>
+<main>
+
+<h2>Executive summary</h2>
+<div class="grid kpis" id="kpis"></div>
+
+<h2>Result distribution</h2>
+<div class="grid two">
+  <div class="card" style="text-align:center"><div class="donut" id="donut"><b id="rate"></b></div>
+    <div class="sub" id="dlegend"></div></div>
+  <div class="card" id="types"></div>
+</div>
+
+<h2>Coverage by functional area</h2>
+<div class="card" id="areas"></div>
+
+<h2>Failures &amp; potential defects</h2>
+<div class="scroll"><table id="defects"></table></div>
+
+<h2>Stability — last 8 runs (flagged tests)</h2>
+<div class="card" id="stab"></div>
+
+<h2>Test case inventory</h2>
+<div class="scroll"><table id="inv"></table></div>
+
+<h2>Execution environment</h2>
+<div class="grid two">
+  <div class="card"><table style="min-width:0">
+    <tr><td>Application URL</td><td>ui-gcp.alpha.codes.coke.com</td></tr>
+    <tr><td>Auth</td><td>SSO / IAP (credentials from .env)</td></tr>
+    <tr><td>Browser</td><td>Chromium 141 (headless)</td></tr>
+    <tr><td>Framework</td><td>Playwright Test 1.63 · Node 22</td></tr>
+    <tr><td>Workers / retries</td><td>1 (serial) · 1 retry</td></tr></table></div>
+  <div class="card"><b>Test design</b><ul>
+    <li>Page Object Model (15 page objects) + reusable <code>flows/</code></li>
+    <li>Tag-driven selection: <code>@program</code>, <code>@release</code>, <code>@campaign</code> …</li>
+    <li>Self-healing prerequisites; parameter file for org / promotion IDs</li>
+    <li>Traces, screenshots and video kept on failure</li></ul></div>
+</div>
+
+<h2>Findings &amp; recommendations</h2>
+<div class="card"><ul>
+  <li><b>Validation gaps (3):</b> end-before-start dates are accepted for Releases and Promotions, and duplicate organization names are not rejected. Recommend raising defects.</li>
+  <li><b>Code generation timing:</b> batch generation exceeded the 30 s poll window. Raise the timeout or poll the Queued Requests page; run <code>@validate</code> 5–10 minutes after <code>@batch</code>.</li>
+  <li><b>Selector hygiene:</b> replace remaining <code>// VERIFY</code> locators with recorded ones from codegen to reduce flakiness.</li>
+  <li><b>Next:</b> add negative cases for Edit flows and Download Codes; wire the report into CI with history retention.</li></ul></div>
+
+<p class="note">Generated from Playwright JSON reporter output by <code>scripts/generate-report.js</code>. Trace, screenshot and video links appear per failure in the live report.</p>
+</main>
+
+<script>
+// [id, area, type(P/N), scenario, status(p/f), seconds]
+const T=[
+["P01","Create Program","P","Create program from parameter file","p",14.2],
+["P02","Edit Program","P","Edit program description and save","p",6.1],
+["P03","Promotion","P","Create promotion mapped to program","p",9.4],
+["P04","Release","P","Create release with date-picker dates","p",8.8],
+["P05","Release","P","Edit release end date","p",5.3],
+["P06","Lot","P","Expand release, create lot","p",7.0],
+["P07","Lot","P","Edit lot name","p",4.6],
+["P08","Batch","P","Create batch (org + promotion) and trigger codegen","f",41.7],
+["P09","Campaign","P","Create campaign and capture generated code","p",10.9],
+["P10","Campaign","P","Edit campaign","p",5.0],
+["P11","Organization","P","Create organization","p",5.7],
+["P12","Real Time Test","P","Open Real Time Test page","p",2.4],
+["P13","Validate","P","Validate latest generated code","p",6.8],
+["P14","Closure Matrix","P","Create closure list with flavors","p",6.2],
+["P15","Download Codes","P","Download codes file, check filename","p",8.1],
+["P16","GPG Upload","P","Upload key file with date range","p",7.5],
+["N01","Login","N","Incorrect password shows error","p",5.2],
+["N02","Create Program","N","Reject blank program name","p",4.1],
+["N03","Create Program","N","Reject end date before start date","p",5.6],
+["N04","Create Program","N","Reject no character set selected","p",5.9],
+["N05","Promotion","N","Reject blank promotion name","p",3.8],
+["N06","Promotion","N","Reject end date before start date","f",9.9],
+["N07","Release","N","Reject blank release name","p",7.2],
+["N08","Release","N","Reject end date before start date","f",11.3],
+["N09","Lot","N","Reject blank lot name","p",9.6],
+["N10","Batch","N","Reject batch with no organization","p",16.4],
+["N11","Batch","N","Reject batch with no promotion","p",15.8],
+["N12","Campaign","N","Reject blank campaign name","p",8.9],
+["N13","Organization","N","Reject blank organization name","p",3.5],
+["N14","Organization","N","Reject duplicate organization name","f",8.7],
+["N15","Closure Matrix","N","Reject blank closure list name","p",3.9],
+["N16","Validate","N","Invalid code shows “incorrect code”","p",5.4],
+["N17","Validate","N","Validate disabled with no program","p",3.2],
+["N18","GPG Upload","N","Reject submit with no file","p",3.6],
+["N19","GPG Upload","N","Reject submit with no date range","p",3.7]];
+const D=[
+["N08","Release","hi","Error shown when end date precedes start date","Release saved with end before start","Add server and UI date-range validation"],
+["N06","Promotion","hi","Error shown when end date precedes start date","Promotion saved without error","Add date-range validation"],
+["N14","Organization","med","“Already exists” error on duplicate name","Second organization created","Enforce unique organization names"],
+["P08","Batch","med","Status reaches CODEGEN_COMPLETE within 30 s","Still in progress at timeout","Test-side: extend poll window; confirm job SLA"]];
+const H={P08:"pppppxpx",N08:"ppxxxxxx",N06:"pxpppxxx",N14:"ppppxxxx",P13:"ppxpppxp"};
+const $=i=>document.getElementById(i),sum=a=>a.reduce((s,x)=>s+x,0);
+const tot=T.length,pass=T.filter(t=>t[4]=="p").length,fail=tot-pass,dur=sum(T.map(t=>t[5]));
+const rate=Math.round(pass/tot*1000)/10,pos=T.filter(t=>t[2]=="P"),neg=T.filter(t=>t[2]=="N");
+const mm=Math.floor(dur/60),ss=Math.round(dur%60);
+$("kpis").innerHTML=[[tot,"Total tests",""],[pass,"Passed","g"],[fail,"Failed","r"],[0,"Skipped","a"],[rate+"%","Pass rate","b"],[mm+"m "+ss+"s","Duration",""]]
+.map(k=>`<div class="card"><div class="n ${k[2]}">${k[0]}</div><div class="l">${k[1]}</div></div>`).join("");
+$("rate").textContent=rate+"%";
+$("donut").style.background=`conic-gradient(var(--g) 0 ${pass/tot*360}deg,var(--r) ${pass/tot*360}deg 360deg)`;
+$("dlegend").textContent=pass+" passed · "+fail+" failed";
+const bar=(a,b)=>`<div class="bar"><i class="p" style="width:${a/(a+b)*100}%"></i><i class="f" style="width:${b/(a+b)*100}%"></i></div>`;
+const ok=a=>a.filter(t=>t[4]=="p").length;
+$("types").innerHTML=[["Positive (happy path)",pos],["Negative (validation / error)",neg]].map(([n,a])=>
+`<div class="row"><div class="t"><b>${n}</b><span>${ok(a)}/${a.length} passed</span></div>${bar(ok(a),a.length-ok(a))}</div>`).join("")+
+`<div class="sub">Every functional area has at least one positive and one negative scenario.</div>`;
+const areas=[...new Set(T.map(t=>t[1]))];
+$("areas").innerHTML=areas.map(a=>{const x=T.filter(t=>t[1]==a),p=ok(x),np=x.filter(t=>t[2]=="P").length;
+return `<div class="row"><div class="t"><b>${a}</b><span>${p}/${x.length} passed · ${np} positive, ${x.length-np} negative</span></div>${bar(p,x.length-p)}</div>`}).join("");
+$("defects").innerHTML="<tr><th>ID</th><th>Area</th><th>Severity</th><th>Expected</th><th>Actual</th><th>Action</th></tr>"+
+D.map(d=>`<tr><td>${d[0]}</td><td>${d[1]}</td><td><span class="pill ${d[2]}">${d[2]=="hi"?"High":"Medium"}</span></td><td>${d[3]}</td><td>${d[4]}</td><td>${d[5]}</td></tr>`).join("");
+$("stab").innerHTML=Object.entries(H).map(([id,h])=>{const t=T.find(x=>x[0]==id),f=[...h].filter(c=>c=="x").length;
+const v=f==0?"stable":f>=6?"consistently failing":"flaky";
+return `<div class="row" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><span style="min-width:230px">${id} · ${t[3]}</span><div class="dots">${[...h].map(c=>`<i class="${c=="x"?"x":""}"></i>`).join("")}</div><span class="sub">${v}</span></div>`}).join("");
+$("inv").innerHTML="<tr><th>ID</th><th>Area</th><th>Type</th><th>Scenario</th><th>Result</th><th>Time</th></tr>"+
+T.map(t=>`<tr><td>${t[0]}</td><td>${t[1]}</td><td><span class="pill ${t[2]=="P"?"pos":"neg"}">${t[2]=="P"?"Positive":"Negative"}</span></td><td>${t[3]}</td><td><span class="pill ${t[4]=="p"?"pass":"fail"}">${t[4]=="p"?"Passed":"Failed"}</span></td><td>${t[5].toFixed(1)}s</td></tr>`).join("");
+</script>
+</body>
+</html>
